@@ -1,7 +1,10 @@
 import os
-from mcp.server.fastmcp import FastMCP
+import asyncio
+from mcp.server.fastmcp import FastMCP, Context
 from langchain_anthropic import ChatAnthropic
 from dotenv import load_dotenv
+from typing import Dict, List, Union
+from langchain.schema import AIMessage, HumanMessage
 
 # Load environment variables
 load_dotenv(override=True)
@@ -15,21 +18,16 @@ mcp = FastMCP("storywriter")
 
 @mcp.tool()
 async def write_story(topic: str) -> str:
-    """Write a story.
-    Args:
-        topic: The story topic  
-    Returns:
-        The written story as a string
-    """
     try:
         messages = [
             (
                 "system", 
-                "You are a talented story writer. Create an engaging short story on the given topic in a maximum of 100 words. Provide the output in markdown format only.",
+                "You are a talented story writer. Create an engaging short story on the given topic in a maximum of 100 words. Provide the output in markdown format only. Do not end with a question.",
             ),
             ("human", f"The topic is: {topic}"),
         ]
         ai_msg = await model.ainvoke(messages)
+
         return ai_msg.content
     except Exception as e:
         return f"An error occurred while writing story: {e}"

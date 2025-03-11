@@ -1,84 +1,77 @@
 import streamlit as st
 import asyncio
-import sys
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from langchain_anthropic import ChatAnthropic
-from langchain.schema import AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+import sys
 from dotenv import load_dotenv
-import os
 
-# Load environment variables
 load_dotenv(override=True)
 
-# Initialize the Anthropic model
-model = ChatAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"), model="claude-3-5-sonnet-20241022", verbose=True)
-
-# Get the current Python executable path
+model = ChatAnthropic(model="claude-3-5-sonnet-20241022", verbose=True)
 python_path = sys.executable
 
-# Streamlit app title
-st.title("AI Agent Orchestrator")
-st.write("This app connects the Story Writer AI and Google Search AI to perform tasks like writing stories and searching the web.")
-
-# Input for the user's task
-task = st.text_area("Enter your task:", "Write a story about Biden and Trump's debate. Search for related information on Google to help you. But before that, first help me search wikipedia about lemurs?")
-
-async def run_agent(task):
-    """Run the agent with the given task."""
+async def get_story_and_search_results(topic):
     async with MultiServerMCPClient() as client:
-        # Connect to the Story Writer AI server
+        # Connect to the storywriter server
         await client.connect_to_server(
             "storywriter",
             command=python_path,
-            args=["story_writer.py"],  # Path to your Story Writer AI script
+            args=["write_blog.py"],
             encoding_error_handler="ignore",
         )
 
-        # Connect to the Google Search AI server
+        # Connect to the googlesearch server
         await client.connect_to_server(
             "googlesearch",
             command=python_path,
-            args=["google_search.py"],  # Path to your Google Search AI script
+            args=["google_search.py"],
             encoding_error_handler="ignore",
         )
 
-        # Create a ReAct agent with the connected tools
         agent = create_react_agent(model, client.get_tools(), debug=True)
+        review_requested = await agent.ainvoke(debug=True, input={"messages": f"Write a story about {topic} and also search in google for it"})
+        
+        last_tool_message, last_ai_message = get_last_messages(review_requested)
+        return last_tool_message, last_ai_message
 
-        # Invoke the agent to perform the task
-        result = await agent.ainvoke(
-            debug=True,
-            input={"messages": task}
-        )
-
-        # Parse and return the AI responses
-        return parse_ai_messages(result)
-
-def parse_ai_messages(data):
-    """Parse and format AI messages from the agent's response."""
+def get_last_messages(data):
     messages = dict(data).get('messages', [])
-    formatted_ai_responses = []
+    last_tool_message = None
+    last_ai_message = None
 
     for message in messages:
-        if isinstance(message, AIMessage):
-            formatted_message = f"### AI Response:\n\n{message.content}\n\n"
-            formatted_ai_responses.append(formatted_message)
+        if isinstance(message, ToolMessage) and message.name == 'search_google':
+            last_tool_message = message.content
+        elif isinstance(message, ToolMessage) and message.name == 'write_story':
+            last_ai_message = message.content
 
-    return formatted_ai_responses
+    return last_tool_message, last_ai_message
 
-# Button to execute the task
-if st.button("Run Task"):
-    with st.spinner("Executing task..."):
-        # Run the agent asynchronously
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(run_agent(task))
-        loop.close()
+def main():
+    st.title("Story Writer and Google Search")
+    topic = st.text_input("Enter a topic:")
+    
+    if st.button("Generate"):
+        if topic:
+            with st.spinner("Generating story and searching Google..."):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                last_tool_message, last_ai_message = loop.run_until_complete(get_story_and_search_results(topic))
 
-        # Display the results
-        st.write("## Task Results")
-        for response in result:
-            st.markdown(response)
+                st.subheader("Story:")
+                st.write(last_ai_message)
+                
+                st.subheader("Links related:")
+                if last_tool_message:
+                    links = last_tool_message.split('\n')
+                    for link in links:
+                        st.write(link)
+                
+                
+        else:
+            st.error("Please enter a topic.")
 
-        st.success("Task completed successfully!")
+if __name__ == "__main__":
+    main()
