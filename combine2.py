@@ -22,7 +22,7 @@ st.title("AI Agent Orchestrator")
 st.write("This app connects the Story Writer AI and Google Search AI to perform tasks like writing stories and searching the web.")
 
 # Input for the user's task
-task = st.text_area("Enter your task:", "Write a story about Lord Krishna and Arjuna, search for related information on Google, and generate images for it.")
+task = st.text_area("Enter your task:", "Write a story about Biden and Trump's debate. Search for related information on Google to help you. But before that, first help me search wikipedia about lemurs?")
 
 async def run_agent(task):
     """Run the agent with the given task."""
