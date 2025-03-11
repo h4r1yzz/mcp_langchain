@@ -1,17 +1,14 @@
 import os
-import asyncio
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp import FastMCP
 from langchain_anthropic import ChatAnthropic
 from dotenv import load_dotenv
 from googlesearch import search  
-from typing import Dict, List, Union
-from langchain.schema import AIMessage, HumanMessage
 
 load_dotenv(override=True)
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 
-model = ChatAnthropic(api_key=anthropic_api_key, model="gpt-4o", verbose=True)
-mcp = FastMCP("google search")
+model = ChatAnthropic(api_key=anthropic_api_key, model="claude-3-5-sonnet-20241022", verbose=True)
+mcp = FastMCP("googlesearch")
 
 @mcp.tool()
 async def search_google(query: str) -> str:

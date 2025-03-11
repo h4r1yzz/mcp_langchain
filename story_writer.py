@@ -1,16 +1,9 @@
-import os
 from mcp.server.fastmcp import FastMCP
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv(override=True)
-anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-
-# Initialize the Anthropic model
-model = ChatAnthropic(api_key=anthropic_api_key, model="claude-3-5-sonnet-20241022", verbose=True)
-
-# Initialize FastMCP
+model = ChatOpenAI(model="gpt-4o-mini", verbose=True)
 mcp = FastMCP("storywriter")
 
 @mcp.tool()
@@ -24,7 +17,7 @@ async def write_story(topic: str) -> str:
     try:
         messages = [
             (
-                "system", 
+                "system",
                 "You are a talented story writer. Create an engaging short story on the given topic in a maximum of 100 words. Provide the output in markdown format only.",
             ),
             ("human", f"The topic is: {topic}"),
@@ -34,6 +27,6 @@ async def write_story(topic: str) -> str:
     except Exception as e:
         return f"An error occurred while writing story: {e}"
 
-# Run the FastMCP tool and test the function
 if __name__ == "__main__":
-    mcp.run()
+  mcp.run()
+
