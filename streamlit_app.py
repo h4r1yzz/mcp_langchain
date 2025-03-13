@@ -1,7 +1,6 @@
 import streamlit as st
 import asyncio
 from combine2 import get_search_and_chat_results
-from llm import chat_with_llm
 import io
 import pandas as pd
 import welly
@@ -22,13 +21,16 @@ if "uploaded_files" not in st.session_state:
 if "well_data" not in st.session_state:
     st.session_state.well_data = {}
 
+# template for creating well log plots for the llm
 def create_well_log_plot(well_data, curves_to_plot, title="Well Log Plot"):
     try:
         depth = np.array(list(well_data['curve_data'].values())[0])
         
+        # Create figure and grid
         fig = plt.figure(figsize=(12, 8))
         gs = GridSpec(1, len(curves_to_plot), figure=fig)
         
+        # Plot each curve
         for i, curve_name in enumerate(curves_to_plot):
             if curve_name not in well_data['curve_data']:
                 continue
@@ -55,11 +57,14 @@ def create_well_log_plot(well_data, curves_to_plot, title="Well Log Plot"):
 def process_las_file(uploaded_file):
     """Process .las file using lasio and welly, with robust error handling"""
     try:
+        # First try using lasio for basic LAS file parsing
         content = uploaded_file.read()
-        uploaded_file.seek(0) 
+        uploaded_file.seek(0)  
         
+        # Parse with lasio first
         las = lasio.read(io.StringIO(content.decode('utf-8')))
         
+        # Extract basic information using lasio
         well_info = {
             "name": las.well.WELL.value if hasattr(las.well, 'WELL') else uploaded_file.name,
             "header": {
@@ -72,7 +77,6 @@ def process_las_file(uploaded_file):
             "step": f"{las.index[1] - las.index[0]:.2f}" if len(las.index) > 1 else "N/A"
         }
         
-        # Try to get additional information using welly
         try:
             # Create a temporary file to save the LAS content
             with tempfile.NamedTemporaryFile(mode='w', suffix='.las', delete=False) as tmp_file:
@@ -87,7 +91,6 @@ def process_las_file(uploaded_file):
                 if hasattr(well, 'uwi'):
                     well_info['uwi'] = well.uwi
                     
-                # Clean up the temporary file
                 os.unlink(tmp_file.name)
                 
         except Exception as welly_error:
@@ -132,6 +135,7 @@ def process_uploaded_file(uploaded_file):
             df = pd.read_excel(uploaded_file) if 'excel' in file_type else pd.read_csv(uploaded_file)
             return df.to_string()
         elif uploaded_file.name.lower().endswith('.las'):
+            # Process LAS file and store well data
             well_data, summary = process_las_file(uploaded_file)
             if well_data:
                 st.session_state.well_data[uploaded_file.name] = well_data
@@ -168,7 +172,7 @@ with st.sidebar:
             st.write(f"📄 {file_info['name']}")
 
 # Chat Section
-st.subheader("Chat here")
+st.subheader("Chat about Well Log Data")
 
 # # Display uploaded files content in a collapsible section
 # if st.session_state.uploaded_files:
@@ -197,6 +201,7 @@ if prompt := st.chat_input("Ask me about the well log data..."):
             context += f"Available Curves: {', '.join(well_data['curves'])}\n"
             context += f"Units: {', '.join(f'{k}: {v}' for k, v in well_data['units'].items())}\n\n"
         
+        # Add file contents
         if st.session_state.uploaded_files:
             context += "\nUploaded Files Content:\n"
             for file_info in st.session_state.uploaded_files.values():
@@ -205,8 +210,10 @@ if prompt := st.chat_input("Ask me about the well log data..."):
         # Get response from LLM
         search_results, response = asyncio.run(get_search_and_chat_results(prompt, context))
         
+        # Check if the response contains a plotting request
         if any(keyword in prompt.lower() for keyword in ['plot', 'graph', 'visualize', 'display', 'show']):
             try:
+                # Extract curve names from the response or prompt
                 curve_names = []
                 for well_name, well_data in st.session_state.well_data.items():
                     for curve in well_data['curves']:
