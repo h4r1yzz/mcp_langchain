@@ -1,6 +1,7 @@
 import streamlit as st
 import asyncio
 from combine2 import get_search_and_chat_results
+from llm import chat_with_llm
 import io
 import pandas as pd
 import welly
@@ -21,9 +22,10 @@ if "uploaded_files" not in st.session_state:
 if "well_data" not in st.session_state:
     st.session_state.well_data = {}
 
-# template for creating well log plots for the llm
 def create_well_log_plot(well_data, curves_to_plot, title="Well Log Plot"):
+
     try:
+        # Get depth data (assuming it's the first curve's index)
         depth = np.array(list(well_data['curve_data'].values())[0])
         
         # Create figure and grid
@@ -40,7 +42,7 @@ def create_well_log_plot(well_data, curves_to_plot, title="Well Log Plot"):
             unit = well_data['units'].get(curve_name, '')
             
             ax.plot(curve_data, depth)
-            ax.set_ylim(max(depth), min(depth))  
+            ax.set_ylim(max(depth), min(depth)) 
             ax.grid(True)
             ax.set_xlabel(f"{curve_name} ({unit})")
             
@@ -55,10 +57,10 @@ def create_well_log_plot(well_data, curves_to_plot, title="Well Log Plot"):
         return None
 
 def process_las_file(uploaded_file):
+    Process .las file using lasio and welly
     try:
-        # First try using lasio for basic LAS file parsing
         content = uploaded_file.read()
-        uploaded_file.seek(0)  
+        uploaded_file.seek(0) 
         
         # Parse with lasio first
         las = lasio.read(io.StringIO(content.decode('utf-8')))
@@ -76,6 +78,7 @@ def process_las_file(uploaded_file):
             "step": f"{las.index[1] - las.index[0]:.2f}" if len(las.index) > 1 else "N/A"
         }
         
+        # Try to get additional information using welly
         try:
             # Create a temporary file to save the LAS content
             with tempfile.NamedTemporaryFile(mode='w', suffix='.las', delete=False) as tmp_file:
@@ -119,7 +122,6 @@ Available Curves: {', '.join(well_info['curves'])}
         return None, f"Error processing LAS file {uploaded_file.name}: {str(e)}"
 
 def process_uploaded_file(uploaded_file):
-    # Process uploaded file and return its content as string
     if uploaded_file is None:
         return None
     
@@ -155,9 +157,18 @@ with st.sidebar:
         help="Upload files to discuss with the chatbot. Supports well log (.las) files!"
     )
     
-    if uploaded_files:
+    # Create a set of current file keys
+    current_file_keys = set()
+    
+    # Clear all data if no files are uploaded
+    if not uploaded_files:
+        st.session_state.uploaded_files = {}
+        st.session_state.well_data = {}
+    else:
         for uploaded_file in uploaded_files:
             file_key = f"{uploaded_file.name}_{uploaded_file.type}"
+            current_file_keys.add(file_key)
+            
             if file_key not in st.session_state.uploaded_files:
                 content = process_uploaded_file(uploaded_file)
                 st.session_state.uploaded_files[file_key] = {
@@ -166,19 +177,21 @@ with st.sidebar:
                     "content": content
                 }
         
+        # Remove files that are no longer in the uploader
+        files_to_remove = set(st.session_state.uploaded_files.keys()) - current_file_keys
+        for file_key in files_to_remove:
+            file_name = st.session_state.uploaded_files[file_key]["name"]
+            del st.session_state.uploaded_files[file_key]
+            if file_name in st.session_state.well_data:
+                del st.session_state.well_data[file_name]
+    
+    if st.session_state.uploaded_files:
         st.subheader("Uploaded Files")
         for file_key, file_info in st.session_state.uploaded_files.items():
             st.write(f"📄 {file_info['name']}")
 
 # Chat Section
-st.subheader("Chat here")
-
-# # Display uploaded files content in a collapsible section
-# if st.session_state.uploaded_files:
-#     with st.expander("View Uploaded Files", expanded=False):
-#         for file_key, file_info in st.session_state.uploaded_files.items():
-#             st.markdown(f"**{file_info['name']}**")
-            
+st.subheader("Chat about Well Log Data")
 
 # Display chat history
 for message in st.session_state.messages:
@@ -193,18 +206,22 @@ if prompt := st.chat_input("Ask me about the well log data..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("assistant"):
-        context = "Available Well Log Data:\n\n"
-        for file_name, well_data in st.session_state.well_data.items():
-            context += f"Well: {file_name}\n"
-            context += f"Depth Range: {well_data['depth_range']}\n"
-            context += f"Available Curves: {', '.join(well_data['curves'])}\n"
-            context += f"Units: {', '.join(f'{k}: {v}' for k, v in well_data['units'].items())}\n\n"
-        
-        # Add file contents
-        if st.session_state.uploaded_files:
-            context += "\nUploaded Files Content:\n"
-            for file_info in st.session_state.uploaded_files.values():
-                context += f"\n{file_info['name']}:\n{file_info['content']}\n"
+        # Create context with well data information
+        if not st.session_state.uploaded_files and not st.session_state.well_data:
+            context = "No files are currently uploaded. Please upload some files to analyze.\n"
+        else:
+            context = "Available Well Log Data:\n\n"
+            if st.session_state.well_data:
+                for file_name, well_data in st.session_state.well_data.items():
+                    context += f"Well: {file_name}\n"
+                    context += f"Depth Range: {well_data['depth_range']}\n"
+                    context += f"Available Curves: {', '.join(well_data['curves'])}\n"
+                    context += f"Units: {', '.join(f'{k}: {v}' for k, v in well_data['units'].items())}\n\n"
+            
+            if st.session_state.uploaded_files:
+                context += "\nUploaded Files Content:\n"
+                for file_info in st.session_state.uploaded_files.values():
+                    context += f"\n{file_info['name']}:\n{file_info['content']}\n"
 
         # Get response from LLM
         search_results, response = asyncio.run(get_search_and_chat_results(prompt, context))
