@@ -11,7 +11,7 @@ from matplotlib.gridspec import GridSpec
 import tempfile
 import os
 
-st.title("Well Log Interpreter and Chat Assistant")
+st.title("Chat Assistant")
 
 # Initialize session state
 if "messages" not in st.session_state:
@@ -55,7 +55,6 @@ def create_well_log_plot(well_data, curves_to_plot, title="Well Log Plot"):
         return None
 
 def process_las_file(uploaded_file):
-    """Process .las file using lasio and welly, with robust error handling"""
     try:
         # First try using lasio for basic LAS file parsing
         content = uploaded_file.read()
@@ -120,7 +119,7 @@ Available Curves: {', '.join(well_info['curves'])}
         return None, f"Error processing LAS file {uploaded_file.name}: {str(e)}"
 
 def process_uploaded_file(uploaded_file):
-    """Process uploaded file and return its content as string"""
+    # Process uploaded file and return its content as string
     if uploaded_file is None:
         return None
     
@@ -172,7 +171,7 @@ with st.sidebar:
             st.write(f"📄 {file_info['name']}")
 
 # Chat Section
-st.subheader("Chat about Well Log Data")
+st.subheader("Chat here")
 
 # # Display uploaded files content in a collapsible section
 # if st.session_state.uploaded_files:
