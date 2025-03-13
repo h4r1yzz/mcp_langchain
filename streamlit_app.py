@@ -213,41 +213,49 @@ if prompt := st.chat_input("Ask me about the well log data..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("assistant"):
-        # Create context with well data information
-        if not st.session_state.uploaded_files and not st.session_state.well_data:
-            context = "No files are currently uploaded. Please upload some files to analyze.\n"
-        else:
-            context = "Available Well Log Data:\n\n"
-            citations = []
-            if st.session_state.well_data:
-                for file_name, well_data in st.session_state.well_data.items():
-                    context += f"Well: {file_name}\n"
-                    context += f"Depth Range: {well_data['depth_range']}\n"
-                    context += f"Available Curves: {', '.join(well_data['curves'])}\n"
-                    context += f"Units: {', '.join(f'{k}: {v}' for k, v in well_data['units'].items())}\n\n"
-                    if 'source_citation' in well_data:
-                        citations.append(well_data['source_citation'])
-            
-            if st.session_state.uploaded_files:
-                context += "\nUploaded Files Content:\n"
-                for file_info in st.session_state.uploaded_files.values():
-                    context += f"\n{file_info['name']}:\n{file_info['content']}\n"
-            
-            # Add citation instruction to context
-            if citations:
-                context += "\nWhen providing information, please cite your sources using the full source citation in parentheses. Example format:\n"
-                context += '(source: FISHER 2-7 well (API: 15153211360000) from Rawlins County, Kansas)\n\n'
-                context += "Available sources:\n"
-                for citation in citations:
-                    context += f"source: {citation}\n"
-                context += "\nTo create plots, simply mention the curve names in your response. Available curves for each well are listed above.\n"
-                context += "Example: 'Let me plot the GR and RHOB curves to analyze the lithology...'\n"
-                context += "The system will automatically detect the curve names and create the plots.\n"
-                context += "\nInclude the full source citation in parentheses when referring to specific well data.\n"
+        # Show a loading spinner while the AI is generating a response
+        with st.spinner("Generating response..."):
+            # Create context with well data information
+            if not st.session_state.uploaded_files and not st.session_state.well_data:
+                context = "No files are currently uploaded. Please upload some files to analyze.\n"
+            else:
+                context = "Available Well Log Data:\n\n"
+                citations = []
+                if st.session_state.well_data:
+                    for file_name, well_data in st.session_state.well_data.items():
+                        context += f"Well: {file_name}\n"
+                        context += f"Depth Range: {well_data['depth_range']}\n"
+                        context += f"Available Curves: {', '.join(well_data['curves'])}\n"
+                        context += f"Units: {', '.join(f'{k}: {v}' for k, v in well_data['units'].items())}\n\n"
+                        if 'source_citation' in well_data:
+                            citations.append(well_data['source_citation'])
+                
+                if st.session_state.uploaded_files:
+                    context += "\nUploaded Files Content:\n"
+                    for file_info in st.session_state.uploaded_files.values():
+                        context += f"\n{file_info['name']}:\n{file_info['content']}\n"
+                
+                # Add citation instruction to context
+                if citations:
+                    context += "\nWhen providing information, please cite your sources using the full source citation in parentheses. Example format:\n"
+                    context += '(source: FISHER 2-7 well (API: 15153211360000) from Rawlins County, Kansas)\n\n'
+                    context += "Available sources:\n"
+                    for citation in citations:
+                        context += f"source: {citation}\n"
+                    context += "\nTo create plots, simply mention the curve names in your response. Available curves for each well are listed above.\n"
+                    context += "Example: 'Let me plot the GR and RHOB curves to analyze the lithology...'\n"
+                    context += "The system will automatically detect the curve names and create the plots.\n"
+                    context += "\nInclude the full source citation in parentheses when referring to specific well data.\n"
 
-        # Get response from LLM
-        search_results, response = asyncio.run(get_search_and_chat_results(prompt, context))
+            # Get response from LLM
+            search_results, response, token_info = asyncio.run(get_search_and_chat_results(prompt, context))
         
+        # Display token information
+        with st.expander("Token Information", expanded=False):
+            st.write(f"Input Tokens: {token_info.get('input_tokens', 'N/A')}")
+            st.write(f"Output Tokens: {token_info.get('output_tokens', 'N/A')}")
+            st.write(f"Total Tokens: {token_info.get('total_tokens', 'N/A')}")
+              
         # Check if the response contains a plotting request
         if any(keyword in prompt.lower() for keyword in ['plot', 'graph', 'visualize', 'display', 'show']):
             try:

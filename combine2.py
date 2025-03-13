@@ -11,7 +11,7 @@ load_dotenv(override=True)
 model = ChatAnthropic(model="claude-3-5-sonnet-20241022", verbose=True)
 python_path = sys.executable
 
-async def get_search_and_chat_results(query: str, files_context: str = "") -> tuple[str, str]:
+async def get_search_and_chat_results(query: str, files_context: str = "") -> tuple[str, str, dict]:
     async with MultiServerMCPClient() as client:
         # Connect to the googlesearch server
         await client.connect_to_server(
@@ -37,13 +37,14 @@ async def get_search_and_chat_results(query: str, files_context: str = "") -> tu
         
         review_requested = await agent.ainvoke(debug=True, input={"messages": input_message})
         
-        search_results, chat_response = get_last_messages(review_requested)
-        return search_results or "", chat_response or "I apologize, but I couldn't process your request. Please try again."
+        search_results, chat_response, token_info = get_last_messages(review_requested)
+        return search_results or "", chat_response or "I apologize, but I couldn't process your request. Please try again.", token_info
 
 def get_last_messages(data):
     messages = dict(data).get('messages', [])
     last_search_message = None
     last_chat_message = None
+    token_info = {}
 
     for message in messages:
         if isinstance(message, ToolMessage) and message.name == 'search_google':
@@ -52,5 +53,7 @@ def get_last_messages(data):
             last_chat_message = message.content
         elif isinstance(message, AIMessage):  
             last_chat_message = message.content
+            token_info = message.response_metadata['usage']
+            token_info.setdefault('total_tokens', token_info.get('input_tokens', 0) + token_info.get('output_tokens', 0))
 
-    return last_search_message, last_chat_message
+    return last_search_message, last_chat_message, token_info
