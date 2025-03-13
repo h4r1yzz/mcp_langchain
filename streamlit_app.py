@@ -1,7 +1,6 @@
 import streamlit as st
 import asyncio
 from combine2 import get_search_and_chat_results
-from llm import chat_with_llm
 import io
 import pandas as pd
 import welly
@@ -25,7 +24,6 @@ if "well_data" not in st.session_state:
 def create_well_log_plot(well_data, curves_to_plot, title="Well Log Plot"):
 
     try:
-        # Get depth data (assuming it's the first curve's index)
         depth = np.array(list(well_data['curve_data'].values())[0])
         
         # Create figure and grid
@@ -63,7 +61,7 @@ def process_las_file(uploaded_file):
         uploaded_file.seek(0) 
         
         # Parse with lasio first
-        las = lasio.read(io.StringIO(content.decode('utf-8')))
+        las = lasio.read(io.StringIO(content.decode('utf-8', errors='replace')))
         
         # Build source citation
         source_citation = f"{las.well.WELL.value if hasattr(las.well, 'WELL') else uploaded_file.name}"
@@ -88,8 +86,8 @@ def process_las_file(uploaded_file):
         
         # Try to get additional information using welly
         try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.las', delete=False) as tmp_file:
-                tmp_file.write(content.decode('utf-8'))
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.las', delete=False, encoding='utf-8', errors='replace') as tmp_file:
+                tmp_file.write(content.decode('utf-8', errors='replace'))
                 tmp_file.flush()
                 
                 well = welly.Well.from_las(tmp_file.name)
@@ -198,7 +196,7 @@ with st.sidebar:
             st.write(f"📄 {file_info['name']}")
 
 # Chat Section
-st.subheader("Chat about Well Log Data")
+st.subheader("Chat here")
 
 # Display chat history
 for message in st.session_state.messages:
@@ -248,20 +246,24 @@ if prompt := st.chat_input("Ask me about the well log data..."):
                     context += "\nInclude the full source citation in parentheses when referring to specific well data.\n"
 
             # Get response from LLM
-            search_results, response, token_info = asyncio.run(get_search_and_chat_results(prompt, context))
+            search_results, response, thinking_steps, token_info = asyncio.run(get_search_and_chat_results(prompt, context))
         
         # Display token information
         with st.expander("Token Information", expanded=False):
             st.write(f"Input Tokens: {token_info.get('input_tokens', 'N/A')}")
             st.write(f"Output Tokens: {token_info.get('output_tokens', 'N/A')}")
             st.write(f"Total Tokens: {token_info.get('total_tokens', 'N/A')}")
+        
+        # Display thinking steps
+        if thinking_steps:
+            with st.expander("Thinking Steps", expanded=False):
+                st.write(thinking_steps)
               
         # Check if the response contains a plotting request
         if any(keyword in prompt.lower() for keyword in ['plot', 'graph', 'visualize', 'display', 'show']):
             try:
-                # Extract curve names from the response or prompt
                 curve_names = []
-                well_citations = {}  # Store citations for each well
+                well_citations = {}  
                 for well_name, well_data in st.session_state.well_data.items():
                     for curve in well_data['curves']:
                         if curve.lower() in prompt.lower() or curve.lower() in response.lower():

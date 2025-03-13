@@ -10,7 +10,7 @@ from langchain.schema import AIMessage, HumanMessage
 load_dotenv(override=True)
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 
-model = ChatAnthropic(api_key=anthropic_api_key, model="claude-3-5-sonnet-20241022", verbose=True)
+model = ChatAnthropic(api_key=anthropic_api_key, model="claude-3-7-sonnet-20250219", verbose=True, thinking={"type": "enabled", "budget_tokens": 16000}, max_tokens=20000)
 mcp = FastMCP("googlesearch")
 
 @mcp.tool()
