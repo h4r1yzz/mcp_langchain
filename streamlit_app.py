@@ -57,13 +57,20 @@ def create_well_log_plot(well_data, curves_to_plot, title="Well Log Plot"):
         return None
 
 def process_las_file(uploaded_file):
-    Process .las file using lasio and welly
+    """Process .las file using lasio and welly"""
     try:
         content = uploaded_file.read()
         uploaded_file.seek(0) 
         
         # Parse with lasio first
         las = lasio.read(io.StringIO(content.decode('utf-8')))
+        
+        # Build source citation
+        source_citation = f"{las.well.WELL.value if hasattr(las.well, 'WELL') else uploaded_file.name}"
+        if hasattr(las.well, 'API'):
+            source_citation += f" (API: {las.well.API.value})"
+        if hasattr(las.well, 'CNTY') and hasattr(las.well, 'STAT'):
+            source_citation += f" from {las.well.CNTY.value}, {las.well.STAT.value}"
         
         # Extract basic information using lasio
         well_info = {
@@ -75,17 +82,16 @@ def process_las_file(uploaded_file):
             "curve_data": {curve.mnemonic: curve.data.tolist() for curve in las.curves},
             "units": {curve.mnemonic: curve.unit for curve in las.curves},
             "depth_range": f"{min(las.index):.2f} - {max(las.index):.2f}",
-            "step": f"{las.index[1] - las.index[0]:.2f}" if len(las.index) > 1 else "N/A"
+            "step": f"{las.index[1] - las.index[0]:.2f}" if len(las.index) > 1 else "N/A",
+            "source_citation": source_citation
         }
         
         # Try to get additional information using welly
         try:
-            # Create a temporary file to save the LAS content
             with tempfile.NamedTemporaryFile(mode='w', suffix='.las', delete=False) as tmp_file:
                 tmp_file.write(content.decode('utf-8'))
                 tmp_file.flush()
                 
-                # Now load the temporary file with welly
                 well = welly.Well.from_las(tmp_file.name)
                 
                 if hasattr(well, 'location'):
@@ -103,6 +109,7 @@ def process_las_file(uploaded_file):
 Depth Range: {well_info['depth_range']} {las.curves[0].unit if las.curves else 'unknown'}
 Depth Step: {well_info['step']} {las.curves[0].unit if las.curves else 'unknown'}
 Available Curves: {', '.join(well_info['curves'])}
+Source: {source_citation}
 """
 
         if well_info['header']:
@@ -211,17 +218,32 @@ if prompt := st.chat_input("Ask me about the well log data..."):
             context = "No files are currently uploaded. Please upload some files to analyze.\n"
         else:
             context = "Available Well Log Data:\n\n"
+            citations = []
             if st.session_state.well_data:
                 for file_name, well_data in st.session_state.well_data.items():
                     context += f"Well: {file_name}\n"
                     context += f"Depth Range: {well_data['depth_range']}\n"
                     context += f"Available Curves: {', '.join(well_data['curves'])}\n"
                     context += f"Units: {', '.join(f'{k}: {v}' for k, v in well_data['units'].items())}\n\n"
+                    if 'source_citation' in well_data:
+                        citations.append(well_data['source_citation'])
             
             if st.session_state.uploaded_files:
                 context += "\nUploaded Files Content:\n"
                 for file_info in st.session_state.uploaded_files.values():
                     context += f"\n{file_info['name']}:\n{file_info['content']}\n"
+            
+            # Add citation instruction to context
+            if citations:
+                context += "\nWhen providing information, please cite your sources using the full source citation in parentheses. Example format:\n"
+                context += '(source: FISHER 2-7 well (API: 15153211360000) from Rawlins County, Kansas)\n\n'
+                context += "Available sources:\n"
+                for citation in citations:
+                    context += f"source: {citation}\n"
+                context += "\nTo create plots, simply mention the curve names in your response. Available curves for each well are listed above.\n"
+                context += "Example: 'Let me plot the GR and RHOB curves to analyze the lithology...'\n"
+                context += "The system will automatically detect the curve names and create the plots.\n"
+                context += "\nInclude the full source citation in parentheses when referring to specific well data.\n"
 
         # Get response from LLM
         search_results, response = asyncio.run(get_search_and_chat_results(prompt, context))
@@ -231,10 +253,13 @@ if prompt := st.chat_input("Ask me about the well log data..."):
             try:
                 # Extract curve names from the response or prompt
                 curve_names = []
+                well_citations = {}  # Store citations for each well
                 for well_name, well_data in st.session_state.well_data.items():
                     for curve in well_data['curves']:
                         if curve.lower() in prompt.lower() or curve.lower() in response.lower():
                             curve_names.append(curve)
+                    if 'source_citation' in well_data:
+                        well_citations[well_name] = well_data['source_citation']
                 
                 if curve_names:
                     # Create plot for each well that has the requested curves
@@ -244,8 +269,11 @@ if prompt := st.chat_input("Ask me about the well log data..."):
                             fig = create_well_log_plot(well_data, valid_curves, f"Well Log Plot - {well_name}")
                             if fig:
                                 st.pyplot(fig)
-                                plt.close(fig)  
-                                st.markdown(f"I've created a plot showing the following curves for {well_name}: {', '.join(valid_curves)}")
+                                plt.close(fig)
+                                # Show citation immediately after each plot
+                                citation = well_citations.get(well_name, well_name)
+                                st.markdown(f"Plot showing {', '.join(valid_curves)} (source: {citation})")
+                                st.markdown("---")  # Add a separator between plots
                 else:
                     st.warning("I couldn't identify which curves to plot. Please specify the curve names you'd like to see.")
             except Exception as e:
