@@ -67,7 +67,15 @@ Remember: You can create plots simply by mentioning the curve names in your resp
 
 @mcp.tool()
 async def chat_with_llm(message: str) -> str:
-    """Chat with the LLM about well log data."""
+    """
+    Chat with the LLM about well log data.
+
+    Args:
+        message (str): The user's message containing the question or request about well log data.
+
+    Returns:
+        str: The response from the LLM containing the analysis or information requested.
+    """
     messages = [
         SystemMessage(content=WELL_LOG_SYSTEM_PROMPT),
         HumanMessage(content=message)
