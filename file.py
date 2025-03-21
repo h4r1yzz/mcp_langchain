@@ -61,13 +61,13 @@ def las_file_analyzer(file_path: str) -> Dict[str, Any]:
             "curve_data": {}
         }
         
-        # Extract version info
-        if hasattr(las, "version"):
-            version_dict = {}
-            if hasattr(las.version, "value"): version_dict["version"] = las.version.value
-            if hasattr(las.version, "WRAP"): version_dict["wrap"] = las.version.WRAP
-            if hasattr(las.version, "DLM"): version_dict["dlm"] = las.version.DLM
-            metadata["version_info"] = version_dict
+        # # Extract version info
+        # if hasattr(las, "version"):
+        #     version_dict = {}
+        #     if hasattr(las.version, "value"): version_dict["version"] = las.version.value
+        #     if hasattr(las.version, "WRAP"): version_dict["wrap"] = las.version.WRAP
+        #     if hasattr(las.version, "DLM"): version_dict["dlm"] = las.version.DLM
+        #     metadata["version_info"] = version_dict
         
         # Extract well info with descriptions
         if hasattr(las, "well"):
@@ -127,21 +127,7 @@ def las_file_analyzer(file_path: str) -> Dict[str, Any]:
                             if len(parts) >= 2:
                                 mnem = parts[0].strip()
                                 rest = parts[1].strip()
-                                # More robust unit extraction
-                                # In LAS files, units are typically enclosed in square brackets or are standardized abbreviations
-                                # If the first word looks like a name (starts with uppercase, contains lowercase), it's likely not a unit
-                                if ' ' in rest:
-                                    potential_unit = rest.split(' ', 1)[0].strip()
-                                    # Check if potential_unit looks like a name (first letter uppercase, rest lowercase)
-                                    if (len(potential_unit) > 1 and 
-                                        potential_unit[0].isupper() and 
-                                        any(c.islower() for c in potential_unit[1:]) and
-                                        not potential_unit.startswith('[')):
-                                        unit = ""  # It's likely a name, not a unit
-                                    else:
-                                        unit = potential_unit
-                                else:
-                                    unit = ""
+                                unit = rest.split(' ', 1)[0].strip() if ' ' in rest else ""
                                 param_info[mnem] = {"unit": unit, "description": description}
                     line = f.readline()
         except Exception as e:

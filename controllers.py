@@ -9,7 +9,6 @@ class LASChatController:
         
     async def handle_query(self, query):
         """Handle a user query and update the state."""
-        # Record query time
         query_time = time.time()
         
         # Check if file is uploaded
@@ -29,13 +28,8 @@ class LASChatController:
         self.state.set_thinking_process(result["thinking_process"])
         self.state.set_token_usage(result["token_usage"])
         
-        # Check if visualization should be displayed
-        should_display_viz = self.model.should_display_visualization(
-            query, 
-            result["response_text"]
-        )
+        should_display_viz = result["should_display_viz"]
         
-        # Find recent visualizations if needed
         recent_visualization = None
         if should_display_viz:
             recent_visualization = self._find_recent_visualization(query_time)

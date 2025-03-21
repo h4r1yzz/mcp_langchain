@@ -2,7 +2,7 @@ import re
 import asyncio
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
-from langchain.schema import HumanMessage, AIMessage
+from langchain.schema import HumanMessage, AIMessage, SystemMessage
 
 class LASAnalyzerModel:
     def __init__(self, model, python_path):
@@ -19,23 +19,32 @@ class LASAnalyzerModel:
                 encoding_error_handler="ignore",
             )
             
-            # Get all tools
-            tools = client.get_tools()
-            
             # Create the agent with debug enabled
             agent = create_react_agent(
                 self.model, 
-                tools, 
+                client.get_tools(), 
                 debug=True
             )
             
             # Prepare the query
             full_query = f"Using the LAS file at {file_path}, {query}"
             
-            # Process the query
+            # Create a system message instructing the agent to use a visualization tag
+            system_message = """
+            When responding to queries about LAS files, if you create a visualization,
+            explicitly indicate this in your response with a special tag: [VISUALIZATION:filename].
+            Only include this tag if you've actually created a visualization.
+            """
+            
+            # Process the query with the system message
             response = await agent.ainvoke(
                 debug=True, 
-                input={"messages": [HumanMessage(content=full_query)]}
+                input={
+                    "messages": [
+                        SystemMessage(content=system_message),
+                        HumanMessage(content=full_query)
+                    ]
+                }
             )
             
             # Extract thinking process
@@ -47,11 +56,16 @@ class LASAnalyzerModel:
             # Extract the response text
             response_text = self._extract_response_text(response)
             
+            # Extract visualization information
+            viz_info = self._extract_visualization_info(response_text)
+            
             return {
-                "response_text": response_text,
+                "response_text": viz_info["clean_response"],
                 "thinking_process": thinking_process,
                 "token_usage": token_usage,
-                "raw_response": response
+                "raw_response": response,
+                "should_display_viz": viz_info["should_display"],
+                "viz_info": viz_info["viz_info"]
             }
     
     def _extract_thinking_process(self, response):
@@ -103,39 +117,26 @@ class LASAnalyzerModel:
                 return ai_messages[-1]
         
         return "I couldn't process that request."
-        
-    def is_visualization_query(self, query):
-        """Check if a query is related to visualization."""
-        visualization_keywords = [
-            "show", "plot", "display", "visualize", "visualization", "graph", 
-            "chart", "track", "crossplot", "heatmap", "image", "picture", "draw"
-        ]
-        
-        query_lower = query.lower()
-        
-        # Check for visualization keywords
-        for keyword in visualization_keywords:
-            if keyword in query_lower:
-                return True
-        
-        return False
-        
-    def should_display_visualization(self, query, response):
-        """Determine if a visualization should be displayed based on query and response."""
-        # Check if query is visualization-related
-        if self.is_visualization_query(query):
-            return True
+    
+    def _extract_visualization_info(self, response_text):
+        """Extract visualization information from the response text."""
+        # Look for the visualization tag
+        viz_match = re.search(r'\[VISUALIZATION:(.*?)\]', response_text)
+        if viz_match:
+            # Extract the filename or other info
+            viz_info = viz_match.group(1).strip()
             
-        # Check if response mentions visualization was created
-        viz_created_phrases = [
-            "created a visualization", "generated a plot", "created a plot",
-            "visualization has been created", "plot has been generated",
-            "created the following visualization", "generated the following plot",
-            "here is the visualization", "here is the plot"
-        ]
+            # Remove the tag from the response
+            clean_response = re.sub(r'\[VISUALIZATION:.*?\]', '', response_text).strip()
+            
+            return {
+                "should_display": True,
+                "viz_info": viz_info,
+                "clean_response": clean_response
+            }
         
-        for phrase in viz_created_phrases:
-            if phrase.lower() in response.lower():
-                return True
-                
-        return False
+        return {
+            "should_display": False,
+            "viz_info": None,
+            "clean_response": response_text
+        }
