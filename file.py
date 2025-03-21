@@ -1,9 +1,13 @@
 from mcp.server.fastmcp import FastMCP
 import os
 import sys
-from typing import Dict, List, Any, Union, Optional
+from typing import Dict, List, Any, Union, Optional, Tuple
 import lasio
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+import time
 
 # Global variable to store file paths
 LAS_FILE_PATHS: List[str] = []
@@ -57,13 +61,13 @@ def las_file_analyzer(file_path: str) -> Dict[str, Any]:
             "curve_data": {}
         }
         
-        # # Extract version info
-        # if hasattr(las, "version"):
-        #     version_dict = {}
-        #     if hasattr(las.version, "value"): version_dict["version"] = las.version.value
-        #     if hasattr(las.version, "WRAP"): version_dict["wrap"] = las.version.WRAP
-        #     if hasattr(las.version, "DLM"): version_dict["dlm"] = las.version.DLM
-        #     metadata["version_info"] = version_dict
+        # Extract version info
+        if hasattr(las, "version"):
+            version_dict = {}
+            if hasattr(las.version, "value"): version_dict["version"] = las.version.value
+            if hasattr(las.version, "WRAP"): version_dict["wrap"] = las.version.WRAP
+            if hasattr(las.version, "DLM"): version_dict["dlm"] = las.version.DLM
+            metadata["version_info"] = version_dict
         
         # Extract well info with descriptions
         if hasattr(las, "well"):
@@ -123,7 +127,21 @@ def las_file_analyzer(file_path: str) -> Dict[str, Any]:
                             if len(parts) >= 2:
                                 mnem = parts[0].strip()
                                 rest = parts[1].strip()
-                                unit = rest.split(' ', 1)[0].strip() if ' ' in rest else ""
+                                # More robust unit extraction
+                                # In LAS files, units are typically enclosed in square brackets or are standardized abbreviations
+                                # If the first word looks like a name (starts with uppercase, contains lowercase), it's likely not a unit
+                                if ' ' in rest:
+                                    potential_unit = rest.split(' ', 1)[0].strip()
+                                    # Check if potential_unit looks like a name (first letter uppercase, rest lowercase)
+                                    if (len(potential_unit) > 1 and 
+                                        potential_unit[0].isupper() and 
+                                        any(c.islower() for c in potential_unit[1:]) and
+                                        not potential_unit.startswith('[')):
+                                        unit = ""  # It's likely a name, not a unit
+                                    else:
+                                        unit = potential_unit
+                                else:
+                                    unit = ""
                                 param_info[mnem] = {"unit": unit, "description": description}
                     line = f.readline()
         except Exception as e:
@@ -457,7 +475,7 @@ def get_specific_curve_value(file_path: str, curve_name: str, index: Optional[in
             
             # Get 2 values before and 2 values after if available
             for i in range(max(0, index - 2), min(len(curve.data), index + 3)):
-                if i != index:  
+                if i != index:  # Skip the main value as we already have it
                     context_values.append(float(curve.data[i]))
                     context_depths.append(float(depth_curve.data[i]) if i < len(depth_curve.data) else None)
                     context_indices.append(i)
@@ -477,6 +495,251 @@ def get_specific_curve_value(file_path: str, curve_name: str, index: Optional[in
         
     except Exception as e:
         return {"error": f"Error retrieving curve value: {str(e)}"}
+
+@mcp.tool()
+def visualize_well_log(
+    file_path: str,
+    visualization_type: str,  # "multi_track", "crossplot", "heatmap"
+    curve_names: List[str],
+    options: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Generate visualizations of well log data.
+    
+    Args:
+        file_path: Path to the LAS file
+        visualization_type: Type of visualization to generate
+            - "multi_track": Track-based log plot with multiple curves
+            - "crossplot": Scatter plot comparing two curves
+            - "heatmap": Heatmap visualization of multiple curves
+        curve_names: List of curve names to visualize
+        options: Optional dictionary of visualization options
+            - depth_range: [min_depth, max_depth] to limit the plot
+            - colors: List of colors for curves
+            - title: Title for the plot
+            - x_curve, y_curve: For crossplot (first two curve_names used if not specified)
+            - color_curve: For crossplot coloring
+            - colormap: For heatmap (default: "viridis")
+            - track_widths: For multi_track (relative widths)
+            
+    Returns:
+        Dictionary containing:
+        - image_filename: Filename of the saved visualization image
+        - visualization_type: Type of visualization generated
+        - curves: List of curves included in the visualization
+        - metadata: Additional information about the visualization
+    """
+    # Get default options
+    if options is None:
+        options = {}
+    
+    # Use las_file_analyzer to get the data
+    las_data = las_file_analyzer(file_path)
+    
+    # Check for errors in las_file_analyzer result
+    if "error" in las_data:
+        return {"error": las_data["error"]}
+    
+    # Create directory for visualizations in the project directory
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    viz_dir = os.path.join(current_dir, "visualizations")
+    os.makedirs(viz_dir, exist_ok=True)
+    
+    # Generate a unique filename based on timestamp and visualization type
+    timestamp = int(time.time())
+    image_filename = f"{visualization_type}_{timestamp}.png"
+    image_path = os.path.join(viz_dir, image_filename)
+    
+    # Extract curve data from las_data
+    available_curves = {curve["name"]: curve for curve in las_data["curves_summary"]["curves"]}
+    
+    # Validate requested curves
+    for curve in curve_names:
+        if curve not in available_curves:
+            return {"error": f"Curve '{curve}' not found in the LAS file. Available curves: {', '.join(available_curves.keys())}"}
+    
+    # Read the LAS file directly for visualization
+    try:
+        import lasio
+        las = lasio.read(file_path)
+        df = las.df()
+    except Exception as e:
+        return {"error": f"Error reading LAS file for visualization: {str(e)}"}
+    
+    # Apply depth range filter if specified
+    depth_range = options.get("depth_range", None)
+    if depth_range and len(depth_range) == 2:
+        min_depth, max_depth = depth_range
+        df = df[(df.index >= min_depth) & (df.index <= max_depth)]
+    
+    # Get title or generate default
+    title = options.get("title", f"Well Log Visualization - {visualization_type.title()}")
+    
+    # Generate the appropriate visualization based on type
+    if visualization_type.lower() == "multi_track":
+        # Multi-track log plot implementation
+        track_widths = options.get("track_widths", [1] * len(curve_names))
+        colors = options.get("colors", [f"C{i}" for i in range(len(curve_names))])
+        
+        # Create figure with appropriate dimensions
+        fig_width = 2 + 2 * len(curve_names)  # Base width + width per track
+        fig_height = 12  # Fixed height for well logs (typically tall)
+        fig, axes = plt.subplots(1, len(curve_names), figsize=(fig_width, fig_height), 
+                                sharey=True, gridspec_kw={'width_ratios': track_widths})
+        
+        # Handle single curve case
+        if len(curve_names) == 1:
+            axes = [axes]
+        
+        # Plot each curve in its own track
+        for i, (curve, ax) in enumerate(zip(curve_names, axes)):
+            curve_data = df[curve].values
+            depth_data = df.index.values
+            
+            # Get curve metadata
+            curve_info = available_curves[curve]
+            unit = curve_info["unit"]
+            
+            # Plot the curve
+            ax.plot(curve_data, depth_data, color=colors[i], linewidth=1.5)
+            
+            # Set labels and grid
+            ax.set_title(curve)
+            ax.set_xlabel(f"{curve} ({unit})" if unit else curve)
+            ax.grid(True, linestyle='--', alpha=0.7)
+            
+            # Invert y-axis (standard for well logs - depth increases downward)
+            ax.invert_yaxis()
+            
+            # Add curve statistics as text
+            if curve in las_data["curve_data"]:
+                stats = las_data["curve_data"][curve]
+                if "min" in stats and "max" in stats and stats["min"] is not None and stats["max"] is not None:
+                    ax.text(0.5, 0.02, 
+                            f"Min: {stats['min']:.2f}\nMax: {stats['max']:.2f}", 
+                            transform=ax.transAxes, ha='center', 
+                            bbox=dict(facecolor='white', alpha=0.7))
+        
+        # Set common y-label
+        fig.text(0.04, 0.5, 'Depth', va='center', rotation='vertical', fontsize=12)
+        
+        # Set title
+        fig.suptitle(title, fontsize=14)
+        
+        # Adjust layout
+        plt.tight_layout()
+        fig.subplots_adjust(top=0.95, left=0.1)
+        
+    elif visualization_type.lower() == "crossplot":
+        # Crossplot implementation
+        if len(curve_names) < 2:
+            return {"error": "Crossplot requires at least two curves"}
+        
+        # Get x and y curves
+        x_curve = options.get("x_curve", curve_names[0])
+        y_curve = options.get("y_curve", curve_names[1])
+        
+        # Validate curves
+        if x_curve not in available_curves:
+            return {"error": f"X-axis curve '{x_curve}' not found"}
+        if y_curve not in available_curves:
+            return {"error": f"Y-axis curve '{y_curve}' not found"}
+        
+        # Get color curve if specified
+        color_curve = options.get("color_curve", None)
+        if color_curve and color_curve not in available_curves:
+            return {"error": f"Color curve '{color_curve}' not found"}
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(10, 8))
+        
+        # Get data
+        x_data = df[x_curve].values
+        y_data = df[y_curve].values
+        
+        # Create scatter plot
+        if color_curve:
+            color_data = df[color_curve].values
+            scatter = ax.scatter(x_data, y_data, c=color_data, cmap=options.get("colormap", "viridis"), 
+                               alpha=0.7, edgecolors='none')
+            cbar = plt.colorbar(scatter, ax=ax)
+            cbar.set_label(f"{color_curve} ({available_curves[color_curve]['unit']})" 
+                          if available_curves[color_curve]['unit'] else color_curve)
+        else:
+            ax.scatter(x_data, y_data, alpha=0.7, edgecolors='none')
+        
+        # Set labels and title
+        x_unit = available_curves[x_curve]["unit"]
+        y_unit = available_curves[y_curve]["unit"]
+        
+        ax.set_xlabel(f"{x_curve} ({x_unit})" if x_unit else x_curve)
+        ax.set_ylabel(f"{y_curve} ({y_unit})" if y_unit else y_curve)
+        ax.set_title(title)
+        
+        # Add grid
+        ax.grid(True, linestyle='--', alpha=0.7)
+        
+    elif visualization_type.lower() == "heatmap":
+        # Heatmap implementation
+        if len(curve_names) < 1:
+            return {"error": "Heatmap requires at least one curve"}
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(12, 10))
+        
+        # Prepare data matrix
+        data_matrix = np.zeros((len(df), len(curve_names)))
+        
+        for i, curve in enumerate(curve_names):
+            data_matrix[:, i] = df[curve].values
+            
+            # Normalize each column (curve) to 0-1 range for better visualization
+            col_min = np.nanmin(data_matrix[:, i])
+            col_max = np.nanmax(data_matrix[:, i])
+            if col_max > col_min:
+                data_matrix[:, i] = (data_matrix[:, i] - col_min) / (col_max - col_min)
+        
+        # Create heatmap
+        colormap = options.get("colormap", "viridis")
+        im = ax.imshow(data_matrix, aspect='auto', cmap=colormap, interpolation='none')
+        
+        # Set y-ticks (depths)
+        depth_step = max(1, len(df) // 20)  # Show at most 20 depth labels
+        depths = df.index.values
+        y_ticks = np.arange(0, len(depths), depth_step)
+        y_tick_labels = [f"{depths[i]:.1f}" for i in y_ticks]
+        ax.set_yticks(y_ticks)
+        ax.set_yticklabels(y_tick_labels)
+        
+        # Set x-ticks (curve names)
+        ax.set_xticks(np.arange(len(curve_names)))
+        ax.set_xticklabels(curve_names, rotation=45, ha='right')
+        
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label('Normalized Value')
+        
+        # Set labels and title
+        ax.set_ylabel('Depth')
+        ax.set_title(title)
+        
+    else:
+        return {"error": f"Unsupported visualization type: {visualization_type}"}
+    
+    # Save the figure to file
+    plt.savefig(image_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    
+    # Return the image filename and metadata
+    return {
+        "image_filename": image_filename,  # Just the filename, not the full path
+        "visualization_type": visualization_type,
+        "curves": curve_names,
+        "metadata": {
+            "depth_range": [float(df.index.min()), float(df.index.max())] if not df.empty else None,
+            "curve_units": {curve: available_curves[curve]["unit"] for curve in curve_names}
+        }
+    }
 
 if __name__ == "__main__":
     mcp.run()
