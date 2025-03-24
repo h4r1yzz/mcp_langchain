@@ -1,14 +1,15 @@
-import streamlit as st
-import os
-import tempfile
 import asyncio
-from langchain_anthropic import ChatAnthropic
+import os
 import sys
+import tempfile
+
+import streamlit as st
 from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
 
 # Import our MVC components
-from models import LASAnalyzerModel
 from controllers import LASChatController
+from models import LASAnalyzerModel
 from state import StateManager
 
 # Load environment variables
@@ -16,8 +17,7 @@ load_dotenv(override=True)
 
 # Set page configuration
 st.set_page_config(
-    page_title="LAS File Chat Assistant",
-    initial_sidebar_state="expanded"
+    page_title="LAS File Chat Assistant", initial_sidebar_state="expanded"
 )
 
 # Page title
@@ -29,16 +29,18 @@ temp_dir = tempfile.mkdtemp()
 # Initialize Anthropic model
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 if not anthropic_api_key:
-    st.error("ANTHROPIC_API_KEY not found in environment variables. Please set it in the .env file.")
+    st.error(
+        "ANTHROPIC_API_KEY not found in environment variables. Please set it in the .env file."
+    )
     st.stop()
 
 # Initialize our components
 model_instance = ChatAnthropic(
-    api_key=anthropic_api_key, 
-    model="claude-3-7-sonnet-20250219", 
-    verbose=True, 
-    thinking={"type": "enabled", "budget_tokens": 16000}, 
-    max_tokens=20000
+    api_key=anthropic_api_key,
+    model="claude-3-7-sonnet-20250219",
+    verbose=True,
+    thinking={"type": "enabled", "budget_tokens": 16000},
+    max_tokens=20000,
 )
 
 python_path = sys.executable
@@ -49,27 +51,30 @@ controller = LASChatController(las_model, state_manager)
 # File Upload Section in sidebar
 with st.sidebar:
     st.header("File Upload")
-    
+
     uploaded_file = st.file_uploader(
         "Drag and drop files here",
         type=["las"],
         accept_multiple_files=False,
     )
-    
+
     # Handle file upload
-    if uploaded_file and (not state_manager.get_file_path() or uploaded_file.name not in state_manager.get_file_path()):
+    if uploaded_file and (
+        not state_manager.get_file_path()
+        or uploaded_file.name not in state_manager.get_file_path()
+    ):
         # Use controller to handle upload
         result = controller.handle_file_upload(uploaded_file, temp_dir)
         if result["status"] == "success":
             st.success(f"File uploaded: {result['file_name']}")
-    
+
     # Display uploaded files
     uploaded_files = state_manager.get_uploaded_files()
     if uploaded_files:
         st.subheader("Uploaded Files")
         for file_name, file_info in uploaded_files.items():
             st.write(f"📄 {file_name}")
-    
+
     # Clear chat button
     if st.button("Clear Chat"):
         state_manager.clear_all()
@@ -85,10 +90,10 @@ if prompt := st.chat_input("Ask me about the well log data..."):
     # Display user message
     with st.chat_message("user"):
         st.markdown(prompt)
-    
+
     # Add user message to history
     state_manager.add_message("user", prompt)
-    
+
     # Check if file is uploaded
     if not state_manager.get_file_path():
         with st.chat_message("assistant"):
@@ -98,7 +103,7 @@ if prompt := st.chat_input("Ask me about the well log data..."):
         # Process query using controller
         with st.spinner("Processing query..."):
             result = asyncio.run(controller.handle_query(prompt))
-        
+
         with st.expander("Thinking & Token Usage"):
             # Display token usage
             st.subheader("Token Usage")
@@ -106,23 +111,25 @@ if prompt := st.chat_input("Ask me about the well log data..."):
             st.text(f"Input Token: {token_usage['input']}")
             st.text(f"Output Token: {token_usage['output']}")
             st.text(f"Total Token: {token_usage['total']}")
-            
+
             # Display thinking process
             st.subheader("Thinking Process")
             if result["thinking_process"]:
-                st.text_area("", result["thinking_process"], height=400)
+                st.text(result["thinking_process"])
             else:
-                st.info("No thinking process available yet. Ask a question to see the agent's reasoning.")
-        
+                st.info(
+                    "No thinking process available yet. Ask a question to see the agent's reasoning."
+                )
+
         # Display visualization if needed
         if result["should_display_viz"] and result["visualization"]:
             viz = result["visualization"]
             st.image(viz["path"])
-        
+
         # Now display the assistant's response
         with st.chat_message("assistant"):
             # Display the processed response
             st.markdown(result["response"])
-        
+
         # Add assistant response to history
         state_manager.add_message("assistant", result["response"])
