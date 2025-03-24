@@ -1,13 +1,36 @@
 import re
 
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
+from langchain_anthropic import ChatAnthropic
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
+
+MODEL_COST_PER_1K_INPUT_TOKENS = {
+    "claude-3-sonnet-20240229": 0.003,
+    "claude-3-5-sonnet-20240620": 0.003,
+    "claude-3-5-sonnet-20241022": 0.003,
+    "claude-3-7-sonnet-20250219": 0.003,
+    "claude-3-haiku-20240307": 0.00025,
+    "claude-3-opus-20240229": 0.015,
+    "claude-3-5-haiku-20241022": 0.0008,
+}
+
+MODEL_COST_PER_1K_OUTPUT_TOKENS = {
+    "claude-3-sonnet-20240229": 0.015,
+    "claude-3-5-sonnet-20240620": 0.015,
+    "claude-3-5-sonnet-20241022": 0.015,
+    "claude-3-7-sonnet-20250219": 0.015,
+    "claude-3-haiku-20240307": 0.00125,
+    "claude-3-opus-20240229": 0.075,
+    "claude-3-5-haiku-20241022": 0.004,
+}
 
 
 class LASAnalyzerModel:
     def __init__(self, model, python_path):
-        self.model = model
+        # Currently self.model expects a ChatAnthropic
+        # TODO: Make more generic so that ChatOpenAI works too in the future
+        self.model: ChatAnthropic = model
         self.python_path = python_path
 
     async def process_query(self, file_path, query):
@@ -47,8 +70,8 @@ class LASAnalyzerModel:
             # Extract thinking process
             thinking_process = self._extract_thinking_process(response)
 
-            # Extract token usage
-            token_usage = self._extract_token_usage(response)
+            # Extract token usage and cost
+            token_usage, token_cost = self._extract_token_usage_and_cost(response)
 
             # Extract the response text
             response_text = self._extract_response_text(response)
@@ -60,6 +83,7 @@ class LASAnalyzerModel:
                 "response_text": viz_info["clean_response"],
                 "thinking_process": thinking_process,
                 "token_usage": token_usage,
+                "token_cost": token_cost,
                 "raw_response": response,
                 "should_display_viz": viz_info["should_display"],
                 "viz_info": viz_info["viz_info"],
@@ -96,9 +120,10 @@ class LASAnalyzerModel:
                             thinking_process = "\n\n".join(numbered_steps)
         return thinking_process
 
-    def _extract_token_usage(self, response):
+    def _extract_token_usage_and_cost(self, response):
         """Extract token usage information from the response."""
         token_usage = {"input": 0, "output": 0, "total": 0}
+        token_cost = {"input": 0, "output": 0, "total": 0}
 
         if isinstance(response, dict) and "messages" in response:
             for msg in response["messages"]:
@@ -107,7 +132,19 @@ class LASAnalyzerModel:
                     token_usage["output"] += msg.usage_metadata.get("output_tokens", 0)
                     token_usage["total"] += msg.usage_metadata.get("total_tokens", 0)
 
-        return token_usage
+                    token_cost["input"] += (
+                        token_usage["input"]
+                        / 1000
+                        * MODEL_COST_PER_1K_INPUT_TOKENS.get(self.model.model, 0)
+                    )
+                    token_cost["output"] += (
+                        token_usage["output"]
+                        / 1000
+                        * MODEL_COST_PER_1K_OUTPUT_TOKENS.get(self.model.model, 0)
+                    )
+                    token_cost["total"] += token_cost["input"] + token_cost["output"]
+
+        return token_usage, token_cost
 
     def _extract_response_text(self, response):
         """Extract the response text from the response."""

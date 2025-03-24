@@ -106,11 +106,15 @@ if prompt := st.chat_input("Ask me about the well log data..."):
 
         with st.expander("Thinking & Token Usage"):
             # Display token usage
-            st.subheader("Token Usage")
+            st.subheader("Token Usage and Cost")
             token_usage = result["token_usage"]
-            st.text(f"Input Token: {token_usage['input']}")
-            st.text(f"Output Token: {token_usage['output']}")
-            st.text(f"Total Token: {token_usage['total']}")
+            token_cost = result["token_cost"]
+            st.text(
+                f"Token in / out / total: {token_usage['input']} / {token_usage['output']} / {token_usage['total']}"
+            )
+            st.text(
+                f"Cost in / out / total: ${token_cost['input']:.2f} / ${token_cost['output']:.2f} / ${token_cost['total']:.2f}"
+            )
 
             # Display thinking process
             st.subheader("Thinking Process")
