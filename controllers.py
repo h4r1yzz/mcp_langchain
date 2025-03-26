@@ -23,6 +23,7 @@ class LASChatController:
         # TODO: Simplify in the future
         self.state.set_thinking_process(result["thinking_process"])
         self.state.set_token_usage(result["token_usage"])
+        self.state.set_tool_messages(result["tool_messages"])
 
         should_display_viz = result["should_display_viz"]
 
@@ -34,6 +35,7 @@ class LASChatController:
             "status": "success",
             "response": result["response_text"],
             "thinking_process": result["thinking_process"],
+            "tool_messages": result["tool_messages"],
             "token_usage": result["token_usage"],
             "token_cost": result["token_cost"],
             "visualization": recent_visualization,

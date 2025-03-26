@@ -69,6 +69,9 @@ class LASAnalyzerModel:
 
             # Extract thinking process
             thinking_process = self._extract_thinking_process(response)
+            
+            # Extract tool messages
+            tool_messages = self._extract_tool_messages(response)
 
             # Extract token usage and cost
             token_usage, token_cost = self._extract_token_usage_and_cost(response)
@@ -82,6 +85,7 @@ class LASAnalyzerModel:
             return {
                 "response_text": viz_info["clean_response"],
                 "thinking_process": thinking_process,
+                "tool_messages": tool_messages,
                 "token_usage": token_usage,
                 "token_cost": token_cost,
                 "raw_response": response,
@@ -103,22 +107,61 @@ class LASAnalyzerModel:
                             raw_thinking = content_item.get("thinking", "")
                             thinking_process += "\n\n" + raw_thinking
                             continue
-                            # Split the raw thinking into paragraphs
-                            paragraphs = [
-                                p for p in raw_thinking.split("\n\n") if p.strip()
-                            ]
+                            # # Split the raw thinking into paragraphs
+                            # paragraphs = [
+                            #     p for p in raw_thinking.split("\n\n") if p.strip()
+                            # ]
 
-                            # Format as numbered steps
-                            numbered_steps = []
-                            for i, paragraph in enumerate(paragraphs, 1):
-                                # Clean up the paragraph - remove any existing numbering
-                                clean_paragraph = re.sub(
-                                    r"^\d+\.\s*", "", paragraph.strip()
-                                )
-                                numbered_steps.append(f"{i}. {clean_paragraph}")
+                            # # Format as numbered steps
+                            # numbered_steps = []
+                            # for i, paragraph in enumerate(paragraphs, 1):
+                            #     # Clean up the paragraph - remove any existing numbering
+                            #     clean_paragraph = re.sub(
+                            #         r"^\d+\.\s*", "", paragraph.strip()
+                            #     )
+                            #     numbered_steps.append(f"{i}. {clean_paragraph}")
 
-                            thinking_process = "\n\n".join(numbered_steps)
+                            # thinking_process = "\n\n".join(numbered_steps)
         return thinking_process
+        
+    def _extract_tool_messages(self, response):
+        """Extract tool messages from the response."""
+        tool_messages = []
+        
+        if isinstance(response, dict) and "messages" in response:
+            for msg in response["messages"]:
+                # Check for tool messages in the content
+                if hasattr(msg, "content") and isinstance(msg.content, list):
+                    for content_item in msg.content:
+                        if isinstance(content_item, dict) and content_item.get("type") == "tool":
+                            tool_message = {
+                                "name": content_item.get("name", "unknown_tool"),
+                                "input": content_item.get("input", {}),
+                                "output": content_item.get("output", "No output"),
+                                "id": content_item.get("id", "")
+                            }
+                            tool_messages.append(tool_message)
+                
+                # Check for tool calls in additional_kwargs
+                if hasattr(msg, "additional_kwargs") and "tool_calls" in msg.additional_kwargs:
+                    for tool_call in msg.additional_kwargs["tool_calls"]:
+                        tool_message = {
+                            "name": tool_call.get("name", "unknown_tool"),
+                            "input": tool_call.get("args", {}),
+                            "id": tool_call.get("id", "")
+                        }
+                        tool_messages.append(tool_message)
+                        
+                # Check for direct tool messages
+                if hasattr(msg, "type") and msg.type == "tool":
+                    tool_message = {
+                        "name": getattr(msg, "name", "unknown_tool"),
+                        "content": getattr(msg, "content", "No content"),
+                        "id": getattr(msg, "id", "")
+                    }
+                    tool_messages.append(tool_message)
+        
+        return tool_messages
 
     def _extract_token_usage_and_cost(self, response):
         """Extract token usage information from the response."""

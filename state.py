@@ -22,6 +22,9 @@ class StateManager:
             
         if "token_usage" not in self.session_state:
             self.session_state.token_usage = {"input": 0, "output": 0, "total": 0}
+            
+        if "tool_messages" not in self.session_state:
+            self.session_state.tool_messages = []
     
     # Message methods
     def get_messages(self):
@@ -62,9 +65,17 @@ class StateManager:
         
     def set_token_usage(self, usage):
         self.session_state.token_usage = usage
+    
+    # Tool message methods
+    def get_tool_messages(self):
+        return self.session_state.tool_messages
+        
+    def set_tool_messages(self, messages):
+        self.session_state.tool_messages = messages
         
     def clear_all(self):
         """Clear all state."""
         self.clear_messages()
         self.session_state.thinking_process = ""
         self.session_state.token_usage = {"input": 0, "output": 0, "total": 0}
+        self.session_state.tool_messages = []
