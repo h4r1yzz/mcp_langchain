@@ -219,7 +219,6 @@ class LASAnalyzerModel:
                             tool["output"] = msg.content
                             break
                 else:
-                    # If no matching tool found, add as a new tool
                     result["tool_messages"].append({
                         "name": getattr(msg, "name", "unknown_tool"),
                         "content": getattr(msg, "content", "No content"),
@@ -229,7 +228,6 @@ class LASAnalyzerModel:
         # Clean up the thinking process
         result["thinking_process"] = result["thinking_process"].strip()
         
-        # Set response_text from the last AIMessage with content for backward compatibility
         if result["all_text_contents"]:
             result["response_text"] = result["all_text_contents"][-1]
         

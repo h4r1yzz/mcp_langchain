@@ -31,7 +31,7 @@ class LASChatController:
         if not self._initialized:
             await self.initialize()
 
-        # Check if file is uploaded
+        # Check if file is upload
         if not self.state.get_file_path():
             return {"status": "error", "message": "Please upload a LAS file first."}
 

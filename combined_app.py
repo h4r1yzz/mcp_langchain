@@ -158,7 +158,7 @@ if prompt := st.chat_input("Ask me about the well log data..."):
                 if "all_text_contents" in result and result["all_text_contents"]:
                     # Display each text content with a separator
                     for i, text in enumerate(result["all_text_contents"]):
-                        if i > 0:  # Only add divider after the first item
+                        if i > 0:
                             st.divider()
                         st.text(text)
                 elif result["response_text"]:
