@@ -1,5 +1,4 @@
 import asyncio
-import atexit
 import os
 import sys
 import tempfile
@@ -48,28 +47,6 @@ python_path = sys.executable
 las_model = LASAnalyzerModel(model_instance, python_path)
 state_manager = StateManager(st.session_state)
 controller = LASChatController(las_model, state_manager)
-
-# Initialize the controller
-if "controller_initialized" not in st.session_state:
-    st.session_state.controller_initialized = False
-
-# Initialize the controller if not already initialized
-if not st.session_state.controller_initialized:
-    asyncio.run(controller.initialize())
-    st.session_state.controller_initialized = True
-
-# Register cleanup function to be called on exit
-def cleanup_resources():
-    if st.session_state.controller_initialized:
-        # Create a new event loop for cleanup
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(controller.cleanup())
-        loop.close()
-        st.session_state.controller_initialized = False
-
-# Register the cleanup function
-atexit.register(cleanup_resources)
 
 # File Upload Section in sidebar
 with st.sidebar:
@@ -144,29 +121,12 @@ if prompt := st.chat_input("Ask me about the well log data..."):
                 )
             
             with tab2:
-                # Display thinking process and text content
-                st.subheader("Thinking Process")
+                # Display thinking process
                 if result["thinking_process"]:
                     st.text(result["thinking_process"])
                 else:
                     st.info(
                         "No thinking process available yet. Ask a question to see the agent's reasoning."
-                    )
-                
-                # Display all text contents
-                st.subheader("Text Content")
-                if "all_text_contents" in result and result["all_text_contents"]:
-                    # Display each text content with a separator
-                    for i, text in enumerate(result["all_text_contents"]):
-                        if i > 0:
-                            st.divider()
-                        st.text(text)
-                elif result["response_text"]:
-                    # Fallback to response_text if all_text_contents is not available
-                    st.text(result["response_text"])
-                else:
-                    st.info(
-                        "No text content available yet."
                     )
             
             with tab3:
@@ -188,7 +148,7 @@ if prompt := st.chat_input("Ask me about the well log data..."):
         # Now display the assistant's response
         with st.chat_message("assistant"):
             # Display the processed response
-            st.markdown(result["response_text"])
+            st.markdown(result["response"])
 
         # Add assistant response to history
-        state_manager.add_message("assistant", result["response_text"])
+        state_manager.add_message("assistant", result["response"])

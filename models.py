@@ -1,4 +1,3 @@
-import os
 import re
 
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
@@ -33,205 +32,92 @@ class LASAnalyzerModel:
         # TODO: Make more generic so that ChatOpenAI works too in the future
         self.model: ChatAnthropic = model
         self.python_path = python_path
-        self.client = None
-        self.agent = None
-        self._initialized = False
-        self._file_paths = set()  # Track valid file paths
-        
-        # System message that doesn't change between queries
-        self.system_message = """
-        When responding to queries about LAS files, if you create a visualization,
-        explicitly indicate this in your response with a special tag: [VISUALIZATION:filename].
-        Only include this tag if you've actually created a visualization.
-        """
-    
-    async def initialize(self):
-        """Initialize the MCP client and React agent."""
-        if not self._initialized:
-            # Create the MCP client
-            self.client = MultiServerMCPClient()
-            await self.client.connect_to_server(
+
+    async def process_query(self, file_path, query):
+        """Process a query about a LAS file using the LangChain agent and MCP tools."""
+        async with MultiServerMCPClient() as client:
+            await client.connect_to_server(
                 "LAS File Analyzer",
                 command=self.python_path,
                 args=["file.py"],
                 encoding_error_handler="ignore",
             )
-            
+
             # Create the agent with debug enabled
-            self.agent = create_react_agent(self.model, self.client.get_tools(), debug=True)
-            
-            self._initialized = True
-            return True
-        return False
-    
-    async def cleanup(self):
-        """Clean up resources when the model is no longer needed."""
-        if self.client and self._initialized:
-            await self.client.close()
-            self.client = None
-            self.agent = None
-            self._initialized = False
-            return True
-        return False
-    
-    def register_file_path(self, file_path):
-        """Register a file path as valid for processing."""
-        if os.path.exists(file_path):
-            self._file_paths.add(file_path)
-            return True
-        return False
-    
-    def validate_file_path(self, file_path):
-        """Check if a file path is valid and registered."""
-        return file_path in self._file_paths or os.path.exists(file_path)
+            agent = create_react_agent(self.model, client.get_tools(), debug=True)
 
-    async def process_query(self, file_path, query):
-        """Process a query about a LAS file using the LangChain agent and MCP tools."""
-        # Ensure the client and agent are initialized
-        if not self._initialized:
-            await self.initialize()
-        
-        # Validate file path
-        if not self.validate_file_path(file_path):
+            # Prepare the query
+            full_query = f"Using the LAS file at {file_path}, {query}"
+
+            # Create a system message instructing the agent to use a visualization tag
+            system_message = """
+            When responding to queries about LAS files, if you create a visualization,
+            explicitly indicate this in your response with a special tag: [VISUALIZATION:filename].
+            Only include this tag if you've actually created a visualization.
+            """
+
+            # Process the query with the system message
+            response = await agent.ainvoke(
+                debug=True,
+                input={
+                    "messages": [
+                        SystemMessage(content=system_message),
+                        HumanMessage(content=full_query),
+                    ]
+                },
+            )
+
+            # Extract thinking process
+            thinking_process = self._extract_thinking_process(response)
+            
+            # Extract tool messages
+            tool_messages = self._extract_tool_messages(response)
+
+            # Extract token usage and cost
+            token_usage, token_cost = self._extract_token_usage_and_cost(response)
+
+            # Extract the response text
+            response_text = self._extract_response_text(response)
+
+            # Extract visualization information
+            viz_info = self._extract_visualization_info(response_text)
+
             return {
-                "status": "error",
-                "message": f"File not found: {file_path}",
-                "thinking_process": "",
-                "tool_messages": [],
-                "token_usage": {"input": 0, "output": 0, "total": 0},
-                "token_cost": {"input": 0, "output": 0, "total": 0},
-                "should_display_viz": False,
-                "viz_info": None,
+                "response_text": viz_info["clean_response"],
+                "thinking_process": thinking_process,
+                "tool_messages": tool_messages,
+                "token_usage": token_usage,
+                "token_cost": token_cost,
+                "raw_response": response,
+                "should_display_viz": viz_info["should_display"],
+                "viz_info": viz_info["viz_info"],
             }
-        
-        # Register the file path if it exists but wasn't registered
-        if file_path not in self._file_paths and os.path.exists(file_path):
-            self.register_file_path(file_path)
-
-        # Prepare the query
-        full_query = f"Using the LAS file at {file_path}, {query}"
-
-        # Process the query with the system message
-        response = await self.agent.ainvoke(
-            debug=True,
-            input={
-                "messages": [
-                    SystemMessage(content=self.system_message),
-                    HumanMessage(content=full_query),
-                ]
-            },
-        )
-
-        # Extract message components (thinking, text, and tools) in a single pass
-        components = self._extract_message_components(response)
-        thinking_process = components["thinking_process"]
-        tool_messages = components["tool_messages"]
-        response_text = components["response_text"]
-        all_text_contents = components["all_text_contents"]
-
-        # Extract token usage and cost
-        token_usage, token_cost = self._extract_token_usage_and_cost(response)
-
-        # Extract visualization information
-        viz_info = self._extract_visualization_info(response_text)
-
-        return {
-            "status": "success",
-            "response_text": viz_info["clean_response"],
-            "thinking_process": thinking_process,
-            "tool_messages": tool_messages,
-            "token_usage": token_usage,
-            "token_cost": token_cost,
-            "raw_response": response,
-            "should_display_viz": viz_info["should_display"],
-            "viz_info": viz_info["viz_info"],
-            "all_text_contents": all_text_contents,
-        }
     
-    async def __aenter__(self):
-        await self.initialize()
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.cleanup()
+    def _extract_message_content(self, response):
+        all_content = []
+        
+        if isinstance(response, dict) and "messages" in response:
+            messages = response["messages"][:-1] if response["messages"] else []
+            
+            for msg in messages:
+                if hasattr(msg, "content"):
+                    if isinstance(msg.content, str):
+                        all_content.append(msg.content)
+                    elif isinstance(msg.content, list):
+                        for content_item in msg.content:
+                            if isinstance(content_item, dict) and "text" in content_item:
+                                all_content.append(content_item["text"])
+                            elif isinstance(content_item, str):
+                                all_content.append(content_item)
+        
+        return "\n\n".join(all_content)
 
-    def _extract_message_components(self, response):
-        result = {
-            "thinking_process": "",
-            "response_text": "",
-            "tool_messages": [],
-            "all_text_contents": []
-        }
+    def _extract_thinking_process(self, response):
+        return self._extract_message_content(response)
         
-        if not isinstance(response, dict) or "messages" not in response:
-            return result
-            
-        for msg in response["messages"]:
-            # Handle AIMessage
-            if isinstance(msg, AIMessage):
-                # Handle structured content (list of dictionaries)
-                if isinstance(msg.content, list):
-                    for item in msg.content:
-                        if not isinstance(item, dict):
-                            continue
-                            
-                        item_type = item.get("type")
-                        
-                        # Extract thinking
-                        if item_type == "thinking":
-                            result["thinking_process"] += "\n\n" + item.get("thinking", "")
-                        
-                        # Extract text
-                        elif item_type == "text":
-                            text_content = item.get("text", "")
-                            result["all_text_contents"].append(text_content)
-                        
-                        # Extract tool_use
-                        elif item_type in ["tool", "tool_use"]:
-                            result["tool_messages"].append({
-                                "name": item.get("name", "unknown_tool"),
-                                "input": item.get("input", {}),
-                                "output": item.get("output", "No output"),
-                                "id": item.get("id", "")
-                            })
-                
-                # Handle simple string content
-                elif isinstance(msg.content, str):
-                    result["all_text_contents"].append(msg.content)
-                
-                # Check for tool calls in additional_kwargs
-                if hasattr(msg, "additional_kwargs") and "tool_calls" in msg.additional_kwargs:
-                    for tool_call in msg.additional_kwargs["tool_calls"]:
-                        result["tool_messages"].append({
-                            "name": tool_call.get("name", "unknown_tool"),
-                            "input": tool_call.get("args", {}),
-                            "id": tool_call.get("id", ""),
-                            "output": "No output"
-                        })
-            
-            # Handle ToolMessage
-            elif hasattr(msg, "type") and msg.type == "tool":
-                # Find the corresponding tool in our list by id
-                tool_id = getattr(msg, "tool_call_id", None)
-                if tool_id:
-                    for tool in result["tool_messages"]:
-                        if tool.get("id") == tool_id:
-                            tool["output"] = msg.content
-                            break
-                else:
-                    result["tool_messages"].append({
-                        "name": getattr(msg, "name", "unknown_tool"),
-                        "content": getattr(msg, "content", "No content"),
-                        "id": getattr(msg, "id", "")
-                    })
-        
-        # Clean up the thinking process
-        result["thinking_process"] = result["thinking_process"].strip()
-        
-        if result["all_text_contents"]:
-            result["response_text"] = result["all_text_contents"][-1]
-        
-        return result
+    def _extract_tool_messages(self, response):
+        content = self._extract_message_content(response)
+        return [{"name": "Message Content", "content": content}]
 
     def _extract_token_usage_and_cost(self, response):
         """Extract token usage information from the response."""
@@ -259,6 +145,18 @@ class LASAnalyzerModel:
 
         return token_usage, token_cost
 
+    def _extract_response_text(self, response):
+        """Extract the response text from the response."""
+        if isinstance(response, dict) and "messages" in response:
+            ai_messages = [
+                msg.content
+                for msg in response["messages"]
+                if isinstance(msg, AIMessage)
+            ]
+            if ai_messages:
+                return ai_messages[-1]
+
+        return "I couldn't process that request."
 
     def _extract_visualization_info(self, response_text):
         """Extract visualization information from the response text."""
