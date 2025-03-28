@@ -1,6 +1,7 @@
 import re
 
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import ToolMessage
 from langchain_anthropic import ChatAnthropic
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
@@ -67,11 +68,7 @@ class LASAnalyzerModel:
                 },
             )
 
-            # Extract thinking process
-            thinking_process = self._extract_thinking_process(response)
-            
-            # Extract tool messages
-            tool_messages = self._extract_tool_messages(response)
+            thinking_process, tool_messages = self.extract_ai_and_tool_messages(response)
 
             # Extract token usage and cost
             token_usage, token_cost = self._extract_token_usage_and_cost(response)
@@ -93,31 +90,38 @@ class LASAnalyzerModel:
                 "viz_info": viz_info["viz_info"],
             }
     
-    def _extract_message_content(self, response):
-        all_content = []
-        
-        if isinstance(response, dict) and "messages" in response:
-            messages = response["messages"][:-1] if response["messages"] else []
-            
-            for msg in messages:
-                if hasattr(msg, "content"):
-                    if isinstance(msg.content, str):
-                        all_content.append(msg.content)
-                    elif isinstance(msg.content, list):
-                        for content_item in msg.content:
-                            if isinstance(content_item, dict) and "text" in content_item:
-                                all_content.append(content_item["text"])
-                            elif isinstance(content_item, str):
-                                all_content.append(content_item)
-        
-        return "\n\n".join(all_content)
+    def extract_ai_and_tool_messages(self, response):
+        if not isinstance(response, dict) or "messages" not in response:
+            return "", []
 
-    def _extract_thinking_process(self, response):
-        return self._extract_message_content(response)
-        
-    def _extract_tool_messages(self, response):
-        content = self._extract_message_content(response)
-        return [{"name": "Message Content", "content": content}]
+        ai_text_parts = []
+        tool_messages = []
+        messages = response["messages"]
+        total = len(messages)
+
+        for i, msg in enumerate(messages):
+            skip_ai = (i == total - 1 and isinstance(msg, AIMessage))
+            
+            if isinstance(msg, AIMessage) and not skip_ai:
+                content = msg.content
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") in ("thinking", "text"):
+                            ai_text_parts.append(item.get("text") or item.get("thinking", ""))
+                        elif isinstance(item, str):
+                            ai_text_parts.append(item)
+                elif isinstance(content, str):
+                    ai_text_parts.append(content)
+            
+            if isinstance(msg, ToolMessage):
+                tool_messages.append({
+                    "name": getattr(msg, "name", "unknown_tool"),
+                    "content": getattr(msg, "content", "No content"),
+                    "id": getattr(msg, "id", "")
+                })
+
+
+        return "\n\n".join(ai_text_parts), tool_messages
 
     def _extract_token_usage_and_cost(self, response):
         """Extract token usage information from the response."""
