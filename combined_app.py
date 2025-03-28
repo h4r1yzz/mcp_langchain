@@ -130,15 +130,16 @@ if prompt := st.chat_input("Ask me about the well log data..."):
                     )
             
             with tab3:
-                # Display tool messages
-                if result.get("tool_messages") and len(result["tool_messages"]) > 0:
-                    for i, tool_msg in enumerate(result["tool_messages"]):
-                        st.subheader(f"Tool: {tool_msg.get('name', 'Unknown')} ({i+1}/{len(result['tool_messages'])})")
-                        st.json(tool_msg)
-                        if i < len(result["tool_messages"]) - 1:
-                            st.divider()
+                if result.get("tool_messages"):
+                    # Combine each tool message into a string with its name and content.
+                    combined_tool_text = "\n\n".join(
+                        f"Tool: {msg.get('name', 'Unknown')}\n\n{msg.get('content', 'No content')}"
+                        for msg in result["tool_messages"]
+                    )
+                    st.text(combined_tool_text)
                 else:
                     st.info("No tool messages available yet. Ask a question that requires tool use.")
+
 
         # Display visualization if needed
         if result["should_display_viz"] and result["visualization"]:
