@@ -1,4 +1,5 @@
 import re
+import asyncio
 
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain_core.messages import ToolMessage
@@ -26,16 +27,16 @@ MODEL_COST_PER_1K_OUTPUT_TOKENS = {
     "claude-3-5-haiku-20241022": 0.004,
 }
 
-
 class LASAnalyzerModel:
     def __init__(self, model, python_path):
-        # Currently self.model expects a ChatAnthropic
-        # TODO: Make more generic so that ChatOpenAI works too in the future
         self.model: ChatAnthropic = model
         self.python_path = python_path
+        self.agent = None
 
-    async def process_query(self, file_path, query):
-        """Process a query about a LAS file using the LangChain agent and MCP tools."""
+    def process_query(self, file_path, query):
+        return asyncio.run(self._process_query_async(file_path, query))
+
+    async def _process_query_async(self, file_path, query):
         async with MultiServerMCPClient() as client:
             await client.connect_to_server(
                 "LAS File Analyzer",
@@ -44,8 +45,8 @@ class LASAnalyzerModel:
                 encoding_error_handler="ignore",
             )
 
-            # Create the agent with debug enabled
-            agent = create_react_agent(self.model, client.get_tools(), debug=True)
+            if self.agent is None:
+                self.agent = create_react_agent(self.model, client.get_tools(), debug=True)
 
             # Prepare the query
             full_query = f"Using the LAS file at {file_path}, {query}"
@@ -58,7 +59,7 @@ class LASAnalyzerModel:
             """
 
             # Process the query with the system message
-            response = await agent.ainvoke(
+            response = await self.agent.ainvoke(
                 debug=True,
                 input={
                     "messages": [
@@ -69,14 +70,8 @@ class LASAnalyzerModel:
             )
 
             thinking_process, tool_messages = self.extract_ai_and_tool_messages(response)
-
-            # Extract token usage and cost
             token_usage, token_cost = self._extract_token_usage_and_cost(response)
-
-            # Extract the response text
             response_text = self._extract_response_text(response)
-
-            # Extract visualization information
             viz_info = self._extract_visualization_info(response_text)
 
             return {
@@ -119,7 +114,6 @@ class LASAnalyzerModel:
                     "content": getattr(msg, "content", "No content"),
                     "id": getattr(msg, "id", "")
                 })
-
 
         return "\n\n".join(ai_text_parts), tool_messages
 

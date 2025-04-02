@@ -1,13 +1,12 @@
 import os
 import time
 
-
 class LASChatController:
     def __init__(self, model, state_manager):
         self.model = model
         self.state = state_manager
 
-    async def handle_query(self, query):
+    def handle_query(self, query):
         """Handle a user query and update the state."""
         query_time = time.time()
 
@@ -15,12 +14,10 @@ class LASChatController:
         if not self.state.get_file_path():
             return {"status": "error", "message": "Please upload a LAS file first."}
 
-        # Process the query
-        result = await self.model.process_query(self.state.get_file_path(), query)
+        # Process the query (now synchronously)
+        result = self.model.process_query(self.state.get_file_path(), query)
 
         # Update state with results
-        # We set state here, but also return state below?
-        # TODO: Simplify in the future
         self.state.set_thinking_process(result["thinking_process"])
         self.state.set_token_usage(result["token_usage"])
         self.state.set_tool_messages(result["tool_messages"])

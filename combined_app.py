@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 import tempfile
@@ -102,7 +101,7 @@ if prompt := st.chat_input("Ask me about the well log data..."):
     else:
         # Process query using controller
         with st.spinner("Processing query..."):
-            result = asyncio.run(controller.handle_query(prompt))
+            result = controller.handle_query(prompt)
 
         with st.expander("Thinking, Tools & Token Usage"):
             # Create tabs for different sections
