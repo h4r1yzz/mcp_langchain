@@ -1,3 +1,5 @@
+from langchain.schema import AIMessage, HumanMessage, SystemMessage
+
 class StateManager:
     """Manages application state separately from the UI."""
     
@@ -28,10 +30,19 @@ class StateManager:
     
     # Message methods
     def get_messages(self):
-        return self.session_state.messages
+        display_messages = []
+        for msg in self.session_state.messages:
+            if isinstance(msg, HumanMessage):
+                display_messages.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage):
+                display_messages.append({"role": "assistant", "content": msg.content})
+        return display_messages
         
     def add_message(self, role, content):
-        self.session_state.messages.append({"role": role, "content": content})
+        if role == "user":
+            self.session_state.messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            self.session_state.messages.append(AIMessage(content=content))
         
     def clear_messages(self):
         self.session_state.messages = []

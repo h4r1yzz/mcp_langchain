@@ -33,10 +33,13 @@ class LASAnalyzerModel:
         self.python_path = python_path
         self.agent = None
 
-    def process_query(self, file_path, query):
-        return asyncio.run(self._process_query_async(file_path, query))
+    def process_query(self, file_path, query, chat_history=None):
+        """Process a query with conversation history."""
+        if chat_history is None:
+            chat_history = []
+        return asyncio.run(self._process_query_async(file_path, query, chat_history))
 
-    async def _process_query_async(self, file_path, query):
+    async def _process_query_async(self, file_path, query, chat_history):
         async with MultiServerMCPClient() as client:
             await client.connect_to_server(
                 "LAS File Analyzer",
@@ -51,22 +54,24 @@ class LASAnalyzerModel:
             # Prepare the query
             full_query = f"Using the LAS file at {file_path}, {query}"
 
-            # Create a system message instructing the agent to use a visualization tag
             system_message = """
-            When responding to queries about LAS files, if you create a visualization,
-            explicitly indicate this in your response with a special tag: [VISUALIZATION:filename].
-            Only include this tag if you've actually created a visualization.
+            When responding to queries about LAS files:
+            1. If you create a visualization, explicitly indicate this in your response with a special tag: [VISUALIZATION:filename].
+            2. Maintain context from previous messages in the conversation.
+            3. When the user refers to something mentioned earlier (like "show me that", "yes please do that"), 
+            understand what they're referring to based on the conversation history.
+            4. If you offer to show visualizations or perform analyses, remember these offers when the user 
+            responds affirmatively without explicitly restating what they want.
             """
 
-            # Process the query with the system message
+            messages = [SystemMessage(content=system_message)]
+            messages.extend(chat_history)
+            messages.append(HumanMessage(content=full_query))
+
+            # Process the query with the system message and conversation history
             response = await self.agent.ainvoke(
                 debug=True,
-                input={
-                    "messages": [
-                        SystemMessage(content=system_message),
-                        HumanMessage(content=full_query),
-                    ]
-                },
+                input={"messages": messages}
             )
 
             thinking_process, tool_messages = self.extract_ai_and_tool_messages(response)
@@ -81,7 +86,7 @@ class LASAnalyzerModel:
                 "token_usage": token_usage,
                 "token_cost": token_cost,
                 "raw_response": response,
-                "should_display_viz": viz_info["should_display"],
+                "should_display_viz": viz_info["should_display_viz"],
                 "viz_info": viz_info["viz_info"],
             }
     
@@ -124,7 +129,7 @@ class LASAnalyzerModel:
 
         if isinstance(response, dict) and "messages" in response:
             for msg in response["messages"]:
-                if hasattr(msg, "usage_metadata"):
+                if hasattr(msg, "usage_metadata")and msg.usage_metadata is not None:
                     token_usage["input"] += msg.usage_metadata.get("input_tokens", 0)
                     token_usage["output"] += msg.usage_metadata.get("output_tokens", 0)
                     token_usage["total"] += msg.usage_metadata.get("total_tokens", 0)
@@ -152,29 +157,50 @@ class LASAnalyzerModel:
                 if isinstance(msg, AIMessage)
             ]
             if ai_messages:
-                return ai_messages[-1]
+                last_message = ai_messages[-1]
+                
+                if isinstance(last_message, list):
+                    text_parts = []
+                    for item in last_message:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                        elif isinstance(item, str):
+                            text_parts.append(item)
+                    return "".join(text_parts)
+                
+                # Handle the case where content is a string
+                return last_message
 
         return "I couldn't process that request."
 
     def _extract_visualization_info(self, response_text):
         """Extract visualization information from the response text."""
-        # Look for the visualization tag
-        viz_match = re.search(r"\[VISUALIZATION:(.*?)\]", response_text)
-        if viz_match:
-            # Extract the filename or other info
-            viz_info = viz_match.group(1).strip()
-
-            # Remove the tag from the response
+        # Ensure response_text is a string
+        if not isinstance(response_text, str):
+            try:
+                response_text = str(response_text)
+            except:
+                return {
+                    "should_display_viz": False,
+                    "viz_info": [],
+                    "clean_response": response_text,
+                }
+        
+        # Look for all visualization tags
+        viz_matches = re.findall(r"\[VISUALIZATION:(.*?)\]", response_text)
+        
+        if viz_matches:
+            viz_infos = [match.strip() for match in viz_matches]
             clean_response = re.sub(r"\[VISUALIZATION:.*?\]", "", response_text).strip()
 
             return {
-                "should_display": True,
-                "viz_info": viz_info,
+                "should_display_viz": True,
+                "viz_info": viz_infos,  
                 "clean_response": clean_response,
             }
 
         return {
-            "should_display": False,
-            "viz_info": None,
+            "should_display_viz": False,
+            "viz_info": [],
             "clean_response": response_text,
         }

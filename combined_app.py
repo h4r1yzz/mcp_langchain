@@ -140,10 +140,10 @@ if prompt := st.chat_input("Ask me about the well log data..."):
                     st.info("No tool messages available yet. Ask a question that requires tool use.")
 
 
-        # Display visualization if needed
-        if result["should_display_viz"] and result["visualization"]:
-            viz = result["visualization"]
-            st.image(viz["path"])
+        # Display visualization
+        if result["should_display_viz"] and result.get("visualizations"):
+            for viz in result["visualizations"]:
+                st.image(viz["path"])
 
         # Now display the assistant's response
         with st.chat_message("assistant"):
