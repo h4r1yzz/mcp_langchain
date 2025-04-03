@@ -30,19 +30,10 @@ class StateManager:
     
     # Message methods
     def get_messages(self):
-        display_messages = []
-        for msg in self.session_state.messages:
-            if isinstance(msg, HumanMessage):
-                display_messages.append({"role": "user", "content": msg.content})
-            elif isinstance(msg, AIMessage):
-                display_messages.append({"role": "assistant", "content": msg.content})
-        return display_messages
-        
+        return self.session_state.messages
+
     def add_message(self, role, content):
-        if role == "user":
-            self.session_state.messages.append(HumanMessage(content=content))
-        elif role == "assistant":
-            self.session_state.messages.append(AIMessage(content=content))
+        self.session_state.messages.append({"role": role, "content": content})
         
     def clear_messages(self):
         self.session_state.messages = []

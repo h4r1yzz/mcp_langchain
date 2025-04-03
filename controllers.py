@@ -64,7 +64,7 @@ class LASChatController:
             "file_name": uploaded_file.name,
         }
 
-    def _find_recent_visualization(self, query_time):
+    def _find_recent_visualizations(self, query_time):
         """Find the most recent visualization created after query_time."""
         current_dir = os.path.dirname(os.path.abspath(__file__))
         viz_dir = os.path.join(current_dir, "visualizations")
