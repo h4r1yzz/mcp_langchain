@@ -1,6 +1,8 @@
 import re
+import asyncio
 
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import ToolMessage
 from langchain_anthropic import ChatAnthropic
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
@@ -25,16 +27,16 @@ MODEL_COST_PER_1K_OUTPUT_TOKENS = {
     "claude-3-5-haiku-20241022": 0.004,
 }
 
-
 class LASAnalyzerModel:
     def __init__(self, model, python_path):
-        # Currently self.model expects a ChatAnthropic
-        # TODO: Make more generic so that ChatOpenAI works too in the future
         self.model: ChatAnthropic = model
         self.python_path = python_path
+        self.agent = None
 
-    async def process_query(self, file_path, query):
-        """Process a query about a LAS file using the LangChain agent and MCP tools."""
+    def process_query(self, file_path, query):
+        return asyncio.run(self._process_query_async(file_path, query))
+
+    async def _process_query_async(self, file_path, query):
         async with MultiServerMCPClient() as client:
             await client.connect_to_server(
                 "LAS File Analyzer",
@@ -43,8 +45,8 @@ class LASAnalyzerModel:
                 encoding_error_handler="ignore",
             )
 
-            # Create the agent with debug enabled
-            agent = create_react_agent(self.model, client.get_tools(), debug=True)
+            if self.agent is None:
+                self.agent = create_react_agent(self.model, client.get_tools(), debug=True)
 
             # Prepare the query
             full_query = f"Using the LAS file at {file_path}, {query}"
@@ -57,7 +59,7 @@ class LASAnalyzerModel:
             """
 
             # Process the query with the system message
-            response = await agent.ainvoke(
+            response = await self.agent.ainvoke(
                 debug=True,
                 input={
                     "messages": [
@@ -67,58 +69,53 @@ class LASAnalyzerModel:
                 },
             )
 
-            # Extract thinking process
-            thinking_process = self._extract_thinking_process(response)
-
-            # Extract token usage and cost
+            thinking_process, tool_messages = self.extract_ai_and_tool_messages(response)
             token_usage, token_cost = self._extract_token_usage_and_cost(response)
-
-            # Extract the response text
             response_text = self._extract_response_text(response)
-
-            # Extract visualization information
             viz_info = self._extract_visualization_info(response_text)
 
             return {
                 "response_text": viz_info["clean_response"],
                 "thinking_process": thinking_process,
+                "tool_messages": tool_messages,
                 "token_usage": token_usage,
                 "token_cost": token_cost,
                 "raw_response": response,
                 "should_display_viz": viz_info["should_display"],
                 "viz_info": viz_info["viz_info"],
             }
+    
+    def extract_ai_and_tool_messages(self, response):
+        if not isinstance(response, dict) or "messages" not in response:
+            return "", []
 
-    def _extract_thinking_process(self, response):
-        """Extract and format the thinking process from the response."""
-        thinking_process = ""
-        if isinstance(response, dict) and "messages" in response:
-            for msg in response["messages"]:
-                if hasattr(msg, "content") and isinstance(msg.content, list):
-                    for content_item in msg.content:
-                        if (
-                            isinstance(content_item, dict)
-                            and content_item.get("type") == "thinking"
-                        ):
-                            raw_thinking = content_item.get("thinking", "")
-                            thinking_process += "\n\n" + raw_thinking
-                            continue
-                            # Split the raw thinking into paragraphs
-                            paragraphs = [
-                                p for p in raw_thinking.split("\n\n") if p.strip()
-                            ]
+        ai_text_parts = []
+        tool_messages = []
+        messages = response["messages"]
+        total = len(messages)
 
-                            # Format as numbered steps
-                            numbered_steps = []
-                            for i, paragraph in enumerate(paragraphs, 1):
-                                # Clean up the paragraph - remove any existing numbering
-                                clean_paragraph = re.sub(
-                                    r"^\d+\.\s*", "", paragraph.strip()
-                                )
-                                numbered_steps.append(f"{i}. {clean_paragraph}")
+        for i, msg in enumerate(messages):
+            skip_ai = (i == total - 1 and isinstance(msg, AIMessage))
+            
+            if isinstance(msg, AIMessage) and not skip_ai:
+                content = msg.content
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") in ("thinking", "text"):
+                            ai_text_parts.append(item.get("text") or item.get("thinking", ""))
+                        elif isinstance(item, str):
+                            ai_text_parts.append(item)
+                elif isinstance(content, str):
+                    ai_text_parts.append(content)
+            
+            if isinstance(msg, ToolMessage):
+                tool_messages.append({
+                    "name": getattr(msg, "name", "unknown_tool"),
+                    "content": getattr(msg, "content", "No content"),
+                    "id": getattr(msg, "id", "")
+                })
 
-                            thinking_process = "\n\n".join(numbered_steps)
-        return thinking_process
+        return "\n\n".join(ai_text_parts), tool_messages
 
     def _extract_token_usage_and_cost(self, response):
         """Extract token usage information from the response."""

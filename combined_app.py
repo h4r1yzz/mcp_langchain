@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 import tempfile
@@ -102,28 +101,44 @@ if prompt := st.chat_input("Ask me about the well log data..."):
     else:
         # Process query using controller
         with st.spinner("Processing query..."):
-            result = asyncio.run(controller.handle_query(prompt))
+            result = controller.handle_query(prompt)
 
-        with st.expander("Thinking & Token Usage"):
-            # Display token usage
-            st.subheader("Token Usage and Cost")
-            token_usage = result["token_usage"]
-            token_cost = result["token_cost"]
-            st.text(
-                f"Token in / out / total: {token_usage['input']} / {token_usage['output']} / {token_usage['total']}"
-            )
-            st.text(
-                f"Cost in / out / total: ${token_cost['input']:.2f} / ${token_cost['output']:.2f} / ${token_cost['total']:.2f}"
-            )
-
-            # Display thinking process
-            st.subheader("Thinking Process")
-            if result["thinking_process"]:
-                st.text(result["thinking_process"])
-            else:
-                st.info(
-                    "No thinking process available yet. Ask a question to see the agent's reasoning."
+        with st.expander("Thinking, Tools & Token Usage"):
+            # Create tabs for different sections
+            tab1, tab2, tab3 = st.tabs(["Token Usage", "Thinking Process", "Tool Messages"])
+            
+            with tab1:
+                # Display token usage
+                st.subheader("Token Usage and Cost")
+                token_usage = result["token_usage"]
+                token_cost = result["token_cost"]
+                st.text(
+                    f"Token in / out / total: {token_usage['input']} / {token_usage['output']} / {token_usage['total']}"
                 )
+                st.text(
+                    f"Cost in / out / total: ${token_cost['input']:.2f} / ${token_cost['output']:.2f} / ${token_cost['total']:.2f}"
+                )
+            
+            with tab2:
+                # Display thinking process
+                if result["thinking_process"]:
+                    st.text(result["thinking_process"])
+                else:
+                    st.info(
+                        "No thinking process available yet. Ask a question to see the agent's reasoning."
+                    )
+            
+            with tab3:
+                if result.get("tool_messages"):
+                    # Combine each tool message into a string with its name and content.
+                    combined_tool_text = "\n\n".join(
+                        f"Tool: {msg.get('name', 'Unknown')}\n\n{msg.get('content', 'No content')}"
+                        for msg in result["tool_messages"]
+                    )
+                    st.text(combined_tool_text)
+                else:
+                    st.info("No tool messages available yet. Ask a question that requires tool use.")
+
 
         # Display visualization if needed
         if result["should_display_viz"] and result["visualization"]:
