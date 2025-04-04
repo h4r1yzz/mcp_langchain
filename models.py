@@ -128,6 +128,8 @@ class LASAnalyzerModel:
         token_cost = {"input": 0, "output": 0, "total": 0}
 
         if isinstance(response, dict) and "messages" in response:
+            # TODO: token cost calculation seems to be different
+            # total seems to be cumulative while input and output are not
             for msg in response["messages"]:
                 if hasattr(msg, "usage_metadata")and msg.usage_metadata is not None:
                     token_usage["input"] += msg.usage_metadata.get("input_tokens", 0)
