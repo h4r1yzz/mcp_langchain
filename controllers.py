@@ -14,8 +14,13 @@ class LASChatController:
         if not self.state.get_file_path():
             return {"status": "error", "message": "Please upload a LAS file first."}
 
-        # Process the query (now synchronously)
-        result = self.model.process_query(self.state.get_file_path(), query)
+        chat_history = self.state.session_state.messages
+        
+        result = self.model.process_query(
+            self.state.get_file_path(), 
+            query,
+            chat_history
+        )
 
         # Update state with results
         self.state.set_thinking_process(result["thinking_process"])
@@ -24,9 +29,9 @@ class LASChatController:
 
         should_display_viz = result["should_display_viz"]
 
-        recent_visualization = None
+        visualizations = []
         if should_display_viz:
-            recent_visualization = self._find_recent_visualization(query_time)
+            visualizations = self._find_recent_visualizations(query_time)
 
         return {
             "status": "success",
@@ -35,7 +40,7 @@ class LASChatController:
             "tool_messages": result["tool_messages"],
             "token_usage": result["token_usage"],
             "token_cost": result["token_cost"],
-            "visualization": recent_visualization,
+            "visualizations": visualizations,
             "should_display_viz": should_display_viz,
         }
 
@@ -59,7 +64,7 @@ class LASChatController:
             "file_name": uploaded_file.name,
         }
 
-    def _find_recent_visualization(self, query_time):
+    def _find_recent_visualizations(self, query_time):
         """Find the most recent visualization created after query_time."""
         current_dir = os.path.dirname(os.path.abspath(__file__))
         viz_dir = os.path.join(current_dir, "visualizations")
@@ -82,11 +87,14 @@ class LASChatController:
             if os.path.getctime(os.path.join(viz_dir, f)) >= query_time
         ]
 
-        if recent_images:
-            latest_image = recent_images[0]
-            image_path = os.path.join(viz_dir, latest_image)
-            viz_type = latest_image.split("_")[0]
+        visualizations = []
+        for image_file in recent_images:
+            image_path = os.path.join(viz_dir, image_file)
+            viz_type = image_file.split("_")[0]
+            visualizations.append({
+                "path": image_path, 
+                "filename": image_file, 
+                "type": viz_type
+            })
 
-            return {"path": image_path, "filename": latest_image, "type": viz_type}
-
-        return None
+        return visualizations

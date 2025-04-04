@@ -36,10 +36,13 @@ if not anthropic_api_key:
 # Initialize our components
 model_instance = ChatAnthropic(
     api_key=anthropic_api_key,
-    model="claude-3-7-sonnet-20250219",
+    model="claude-3-5-haiku-20241022",
     verbose=True,
-    thinking={"type": "enabled", "budget_tokens": 16000},
-    max_tokens=20000,
+    # disabled for non-thinking models
+    # thinking={"type": "enabled", "budget_tokens": 16000},
+    # reduced for haiku which has a lower output token limit
+    # max_tokens=20000,
+    max_tokens=8192
 )
 
 python_path = sys.executable
@@ -140,10 +143,10 @@ if prompt := st.chat_input("Ask me about the well log data..."):
                     st.info("No tool messages available yet. Ask a question that requires tool use.")
 
 
-        # Display visualization if needed
-        if result["should_display_viz"] and result["visualization"]:
-            viz = result["visualization"]
-            st.image(viz["path"])
+        # Display visualization
+        if result["should_display_viz"] and result.get("visualizations"):
+            for viz in result["visualizations"]:
+                st.image(viz["path"])
 
         # Now display the assistant's response
         with st.chat_message("assistant"):

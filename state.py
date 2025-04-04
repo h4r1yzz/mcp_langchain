@@ -29,7 +29,7 @@ class StateManager:
     # Message methods
     def get_messages(self):
         return self.session_state.messages
-        
+
     def add_message(self, role, content):
         self.session_state.messages.append({"role": role, "content": content})
         
