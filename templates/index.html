@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAS File Chat Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="sidebar">
+        <h2>File Upload</h2>
+        <div class="file-upload">
+            <form id="upload-form" enctype="multipart/form-data">
+                <div class="file-input-container">
+                    <input type="file" id="file-input" accept=".las">
+                </div>
+                <div class="upload-button-container">
+                    <button type="submit">Upload</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="uploaded-files">
+            <h3>Uploaded Files</h3>
+            <div id="files-list">
+                {% for file_name, file_info in uploaded_files.items() %}
+                <div class="file-item">
+                    <span class="file-icon">📄</span>
+                    <span>{{ file_name }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="clear-chat-container">
+            <button id="clear-chat">Clear Chat</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <h1>Chat Assistant</h1>
+
+        <div class="chat-container" id="chat-container">
+            {% for message in messages %}
+            <div class="message {{ message.role }}">
+                {{ message.content | safe }}
+            </div>
+            {% endfor %}
+        </div>
+
+        <div id="spinner" class="spinner"></div>
+
+        <div class="input-container">
+            <input type="text" id="query-input" placeholder="Ask me about the well log data...">
+            <button id="send-button">Send</button>
+        </div>
+
+        <div class="debug-info">
+            <button type="button" class="collapsible">Debug Information</button>
+            <div class="content">
+                <div id="token-usage">
+                    <h4>Token Usage</h4>
+                    <p>No data yet</p>
+                </div>
+
+                <div id="thinking-process">
+                    <h4>Thinking Process</h4>
+                    <pre>No data yet</pre>
+                </div>
+
+                <div id="tool-messages">
+                    <h4>Tool Messages</h4>
+                    <pre>No data yet</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
