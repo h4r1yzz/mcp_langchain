@@ -6,10 +6,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const fileInput = document.getElementById('file-input');
     const filesList = document.getElementById('files-list');
     const clearChatButton = document.getElementById('clear-chat');
-    const spinner = document.getElementById('spinner');
     const tokenUsage = document.getElementById('token-usage');
     const thinkingProcess = document.getElementById('thinking-process');
     const toolMessages = document.getElementById('tool-messages');
+
+    // Variable to track the message div that contains the spinner
+    let loadingMessageDiv = null;
 
     function scrollToBottom() {
         chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -35,7 +37,16 @@ document.addEventListener('DOMContentLoaded', function() {
         const formData = new FormData();
         formData.append('file', file);
 
-        spinner.style.display = 'block';
+        // Create a placeholder message with a spinner for the file upload
+        const uploadMessageDiv = document.createElement('div');
+        uploadMessageDiv.className = 'message assistant';
+
+        // Add the spinner inline with a "Uploading..." text
+        const spinnerHTML = `<div>Uploading file... <div class="inline-spinner"></div></div>`;
+        uploadMessageDiv.innerHTML = spinnerHTML;
+
+        chatContainer.appendChild(uploadMessageDiv);
+        scrollToBottom();
 
         fetch('/upload', {
             method: 'POST',
@@ -43,9 +54,10 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            spinner.style.display = 'none';
-
             if (data.status === 'success') {
+                // Update the message to show success
+                uploadMessageDiv.innerHTML = `File <strong>${data.file_name}</strong> uploaded successfully.`;
+
                 const fileItem = document.createElement('div');
                 fileItem.className = 'file-item';
                 fileItem.innerHTML = `
@@ -54,14 +66,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 `;
                 filesList.appendChild(fileItem);
                 fileInput.value = '';
-                alert(`File uploaded: ${data.file_name}`);
             } else {
-                alert(`Error: ${data.message}`);
+                // Update the message to show error
+                uploadMessageDiv.innerHTML = `<div class="error-message">Error: ${data.message}</div>`;
             }
         })
         .catch(() => {
-            spinner.style.display = 'none';
-            alert('An error occurred while processing your request');
+            // Update the message to show error
+            uploadMessageDiv.innerHTML = `<div class="error-message">An error occurred while processing your request</div>`;
         });
     });
 
@@ -79,7 +91,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
         addMessage('user', query);
         queryInput.value = '';
-        spinner.style.display = 'block';
+
+        loadingMessageDiv = document.createElement('div');
+        loadingMessageDiv.className = 'message assistant';
+
+        // Add the spinner inline with a "Thinking..." text
+        const spinnerHTML = `<div>Generating Response... <div class="inline-spinner"></div></div>`;
+        loadingMessageDiv.innerHTML = spinnerHTML;
+
+        chatContainer.appendChild(loadingMessageDiv);
+        scrollToBottom();
 
         fetch('/query', {
             method: 'POST',
@@ -90,10 +111,9 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            spinner.style.display = 'none';
-
             if (data.status === 'success') {
-                addMessage('assistant', data.response);
+                // Replace the loading spinner with the actual response
+                loadingMessageDiv.innerHTML = data.response;
 
                 if (data.token_usage) {
                     const usage = data.token_usage;
@@ -130,6 +150,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     scrollToBottom();
                 }
             } else {
+                // Replace the loading spinner with an error message
+                loadingMessageDiv.remove();
+
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'message';
 
@@ -143,7 +166,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .catch(() => {
-            spinner.style.display = 'none';
+            // Remove the loading spinner and show an error message
+            loadingMessageDiv.remove();
+
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message';
 
