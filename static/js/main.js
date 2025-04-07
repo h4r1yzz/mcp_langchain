@@ -1,20 +1,21 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const chatContainer = document.getElementById('chat-container');
-    const queryInput = document.getElementById('query-input');
-    const sendButton = document.getElementById('send-button');
-    const uploadForm = document.getElementById('upload-form');
-    const fileInput = document.getElementById('file-input');
-    const filesList = document.getElementById('files-list');
-    const clearChatButton = document.getElementById('clear-chat');
-    const tokenUsage = document.getElementById('token-usage');
-    const thinkingProcess = document.getElementById('thinking-process');
-    const toolMessages = document.getElementById('tool-messages');
+    const elements = {
+        chatContainer: document.getElementById('chat-container'),
+        queryInput: document.getElementById('query-input'),
+        sendButton: document.getElementById('send-button'),
+        uploadForm: document.getElementById('upload-form'),
+        fileInput: document.getElementById('file-input'),
+        filesList: document.getElementById('files-list'),
+        clearChatButton: document.getElementById('clear-chat'),
+        tokenUsage: document.getElementById('token-usage'),
+        thinkingProcess: document.getElementById('thinking-process'),
+        toolMessages: document.getElementById('tool-messages')
+    };
 
-    // Variable to track the message div that contains the spinner
     let loadingMessageDiv = null;
 
     function scrollToBottom() {
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        elements.chatContainer.scrollTop = elements.chatContainer.scrollHeight;
     }
 
     function addMessage(role, content) {
@@ -26,30 +27,106 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         messageDiv.innerHTML = content;
-        chatContainer.appendChild(messageDiv);
+        elements.chatContainer.appendChild(messageDiv);
+        scrollToBottom();
+        return messageDiv;
+    }
+
+    function showLoadingMessage(text) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message assistant';
+
+        const loadingDiv = document.createElement('div');
+        loadingDiv.textContent = text;
+
+        const spinner = document.createElement('div');
+        spinner.className = 'inline-spinner';
+
+        loadingDiv.appendChild(spinner);
+        messageDiv.appendChild(loadingDiv);
+
+        elements.chatContainer.appendChild(messageDiv);
+        scrollToBottom();
+
+        return messageDiv;
+    }
+
+    function showErrorMessage(errorText) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message';
+
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.textContent = errorText || 'An error occurred';
+
+        messageDiv.appendChild(errorDiv);
+        elements.chatContainer.appendChild(messageDiv);
         scrollToBottom();
     }
 
-    uploadForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-
-        const file = fileInput.files[0];
-        if (!file) {
-            alert('Please select a file');
-            return;
+    function updateDebugInfo(data) {
+        // Update token usage
+        if (data.token_usage) {
+            const usage = data.token_usage;
+            const cost = data.token_cost;
+            elements.tokenUsage.innerHTML = `
+                <h4>Token Usage</h4>
+                <p>Input: ${usage.input} / Output: ${usage.output} / Total: ${usage.total}</p>
+                <p>Cost: $${cost.input.toFixed(2)} / $${cost.output.toFixed(2)} / $${cost.total.toFixed(2)}</p>
+            `;
         }
 
+        // Update thinking process
+        if (data.thinking_process) {
+            elements.thinkingProcess.innerHTML = `
+                <h4>Thinking Process</h4>
+                <pre>${data.thinking_process}</pre>
+            `;
+        }
+
+        // Update tool messages
+        if (data.tool_messages) {
+            elements.toolMessages.innerHTML = `
+                <h4>Tool Messages</h4>
+                <pre>${JSON.stringify(data.tool_messages, null, 2)}</pre>
+            `;
+        }
+    }
+
+    function resetDebugInfo() {
+        elements.tokenUsage.innerHTML = '<h4>Token Usage</h4><p>No data yet</p>';
+        elements.thinkingProcess.innerHTML = '<h4>Thinking Process</h4><pre>No data yet</pre>';
+        elements.toolMessages.innerHTML = '<h4>Tool Messages</h4><pre>No data yet</pre>';
+    }
+
+    function displayResponse(responseDiv, data) {
+        responseDiv.innerHTML = '';
+
+        if (data.visualizations && data.visualizations.length > 0) {
+            data.visualizations.forEach(viz => {
+                const imgElement = document.createElement('img');
+                imgElement.src = viz.url;
+                imgElement.className = 'visualization';
+                imgElement.alt = 'Visualization';
+                responseDiv.appendChild(imgElement);
+            });
+        }
+
+        // FORMATTED RESPONSE
+        const formattedResponse = data.response.replace(/\n/g, '<br>');
+        const textDiv = document.createElement('div');
+        textDiv.className = 'response-text';
+        textDiv.innerHTML = formattedResponse;
+        responseDiv.appendChild(textDiv);
+
+        scrollToBottom();
+    }
+
+    function uploadFile(file) {
         const formData = new FormData();
         formData.append('file', file);
 
-        const uploadMessageDiv = document.createElement('div');
-        uploadMessageDiv.className = 'message assistant';
-
-        const spinnerHTML = `<div>Uploading file... <div class="inline-spinner"></div></div>`;
-        uploadMessageDiv.innerHTML = spinnerHTML;
-
-        chatContainer.appendChild(uploadMessageDiv);
-        scrollToBottom();
+        const uploadMessageDiv = showLoadingMessage('Uploading file...');
 
         fetch('/upload', {
             method: 'POST',
@@ -58,53 +135,51 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                // Update the message to show success
                 uploadMessageDiv.innerHTML = `File <strong>${data.file_name}</strong> uploaded successfully.`;
 
                 const fileItem = document.createElement('div');
                 fileItem.className = 'file-item';
-                fileItem.innerHTML = `
-                    <span class="file-icon">📄</span>
-                    <span>${data.file_name}</span>
-                `;
-                filesList.appendChild(fileItem);
-                fileInput.value = '';
+
+                const fileIcon = document.createElement('span');
+                fileIcon.className = 'file-icon';
+                fileIcon.textContent = '📄';
+
+                const fileName = document.createElement('span');
+                fileName.textContent = data.file_name;
+
+                fileItem.appendChild(fileIcon);
+                fileItem.appendChild(fileName);
+                elements.filesList.appendChild(fileItem);
+                elements.fileInput.value = '';
             } else {
-                // Update the message to show error
-                uploadMessageDiv.innerHTML = `<div class="error-message">Error: ${data.message}</div>`;
+                uploadMessageDiv.innerHTML = '';
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = `Error: ${data.message}`;
+                uploadMessageDiv.appendChild(errorDiv);
             }
         })
         .catch(() => {
-            // Update the message to show error
-            uploadMessageDiv.innerHTML = `<div class="error-message">An error occurred while processing your request</div>`;
+            uploadMessageDiv.innerHTML = '';
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = 'An error occurred while processing your request';
+            uploadMessageDiv.appendChild(errorDiv);
         });
-    });
-
-    sendButton.addEventListener('click', sendQuery);
-
-    queryInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            sendQuery();
-        }
-    });
+    }
 
     function sendQuery() {
-        const query = queryInput.value.trim();
+        const query = elements.queryInput.value.trim();
         if (!query) return;
 
+        // Add user message
         addMessage('user', query);
-        queryInput.value = '';
+        elements.queryInput.value = '';
 
-        loadingMessageDiv = document.createElement('div');
-        loadingMessageDiv.className = 'message assistant';
+        // Show loading message
+        loadingMessageDiv = showLoadingMessage('Generating Response...');
 
-        // Add the spinner inline with a "Thinking..." text
-        const spinnerHTML = `<div>Generating Response... <div class="inline-spinner"></div></div>`;
-        loadingMessageDiv.innerHTML = spinnerHTML;
-
-        chatContainer.appendChild(loadingMessageDiv);
-        scrollToBottom();
-
+        // Send query to server
         fetch('/query', {
             method: 'POST',
             headers: {
@@ -115,106 +190,61 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                // Convert newlines to <br> tags to preserve formatting
-                const formattedResponse = data.response.replace(/\n/g, '<br>');
-                loadingMessageDiv.innerHTML = formattedResponse;
-
-                if (data.token_usage) {
-                    const usage = data.token_usage;
-                    const cost = data.token_cost;
-                    tokenUsage.innerHTML = `
-                        <h4>Token Usage</h4>
-                        <p>Input: ${usage.input} / Output: ${usage.output} / Total: ${usage.total}</p>
-                        <p>Cost: $${cost.input.toFixed(2)} / $${cost.output.toFixed(2)} / $${cost.total.toFixed(2)}</p>
-                    `;
-                }
-
-                if (data.thinking_process) {
-                    thinkingProcess.innerHTML = `
-                        <h4>Thinking Process</h4>
-                        <pre>${data.thinking_process}</pre>
-                    `;
-                }
-
-                if (data.tool_messages) {
-                    toolMessages.innerHTML = `
-                        <h4>Tool Messages</h4>
-                        <pre>${JSON.stringify(data.tool_messages, null, 2)}</pre>
-                    `;
-                }
-
-                if (data.visualizations && data.visualizations.length > 0) {
-                    data.visualizations.forEach(viz => {
-                        const imgElement = document.createElement('img');
-                        imgElement.src = viz.url;
-                        imgElement.className = 'visualization';
-                        imgElement.alt = 'Visualization';
-                        chatContainer.appendChild(imgElement);
-                    });
-                    scrollToBottom();
-                }
+                displayResponse(loadingMessageDiv, data);
+                updateDebugInfo(data);
             } else {
-                // Replace the loading spinner with an error message
                 loadingMessageDiv.remove();
-
-                const messageDiv = document.createElement('div');
-                messageDiv.className = 'message';
-
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error-message';
-                errorDiv.textContent = data.message || 'An error occurred';
-
-                messageDiv.appendChild(errorDiv);
-                chatContainer.appendChild(messageDiv);
-                scrollToBottom();
+                showErrorMessage(data.message || 'An error occurred');
             }
         })
         .catch(() => {
-            // Remove the loading spinner and show an error message
             loadingMessageDiv.remove();
-
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message';
-
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-message';
-            errorDiv.textContent = 'An error occurred while processing your request';
-
-            messageDiv.appendChild(errorDiv);
-            chatContainer.appendChild(messageDiv);
-            scrollToBottom();
+            showErrorMessage('An error occurred while processing your request');
         });
     }
 
-    clearChatButton.addEventListener('click', function() {
+    function clearChat() {
         fetch('/clear', {
             method: 'POST'
         })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                chatContainer.innerHTML = '';
-
-                tokenUsage.innerHTML = '<h4>Token Usage</h4><p>No data yet</p>';
-                thinkingProcess.innerHTML = '<h4>Thinking Process</h4><pre>No data yet</pre>';
-                toolMessages.innerHTML = '<h4>Tool Messages</h4><pre>No data yet</pre>';
+                elements.chatContainer.innerHTML = '';
+                resetDebugInfo();
             }
         })
         .catch(() => {
             alert('An error occurred while clearing the chat');
         });
+    }
+
+    elements.uploadForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const file = elements.fileInput.files[0];
+        if (!file) {
+            alert('Please select a file');
+            return;
+        }
+        uploadFile(file);
     });
 
-    const coll = document.getElementsByClassName("collapsible");
-    for (let i = 0; i < coll.length; i++) {
-        coll[i].addEventListener("click", function() {
-            this.classList.toggle("active");
+    elements.sendButton.addEventListener('click', sendQuery);
+
+    elements.queryInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendQuery();
+        }
+    });
+
+    elements.clearChatButton.addEventListener('click', clearChat);
+
+    const collapsibles = document.getElementsByClassName('collapsible');
+    for (let i = 0; i < collapsibles.length; i++) {
+        collapsibles[i].addEventListener('click', function() {
+            this.classList.toggle('active');
             const content = this.nextElementSibling;
-            if (content.style.display === "block") {
-                content.style.display = "none";
-            } else {
-                content.style.display = "block";
-            }
+            content.style.display = content.style.display === 'block' ? 'none' : 'block';
         });
     }
 
