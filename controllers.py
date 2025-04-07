@@ -14,7 +14,7 @@ class LASChatController:
         if not self.state.get_file_path():
             return {"status": "error", "message": "Please upload a LAS file first."}
 
-        chat_history = self.state.session_state.messages
+        chat_history = self.state.get_messages()
         
         result = self.model.process_query(
             self.state.get_file_path(), 
@@ -50,18 +50,19 @@ class LASChatController:
             return {"status": "error", "message": "No file provided"}
 
         # Save the uploaded file to the temp directory
-        file_path = os.path.join(temp_dir, uploaded_file.name)
+        file_path = os.path.join(temp_dir, uploaded_file.filename)
         with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        # Change getbuffer to read for compatible with Flask
+            f.write(uploaded_file.read())
 
         # Update state
         self.state.set_file_path(file_path)
-        self.state.add_uploaded_file(uploaded_file.name, file_path)
+        self.state.add_uploaded_file(uploaded_file.filename, file_path)
 
         return {
             "status": "success",
             "file_path": file_path,
-            "file_name": uploaded_file.name,
+            "file_name": uploaded_file.filename,
         }
 
     def _find_recent_visualizations(self, query_time):

@@ -11,7 +11,7 @@ from models import LASAnalyzerModel
 from state import StateManager
 
 # Load environment variables
-load_dotenv(override=True)
+load_dotenv()
 
 # Create Flask app
 app = Flask(__name__)
@@ -108,8 +108,9 @@ def process_query():
         "thinking_process": result["thinking_process"],
         "token_usage": result["token_usage"],
         "token_cost": result["token_cost"],
+        "tool_messages": result["tool_messages"],
         "visualizations": visualizations,
-        "messages": state_manager.get_messages()
+        "should_display_viz": result["should_display_viz"]
     })
 
 @app.route('/visualization/<filename>')
@@ -128,10 +129,6 @@ def clear_chat():
     state_manager.clear_all()
     return jsonify({"status": "success", "message": "Chat cleared"})
 
-@app.route('/messages')
-def get_messages():
-    """Get all messages."""
-    return jsonify({"messages": state_manager.get_messages()})
-
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # Disable auto-reloader to prevent conflicts with MCP server
+    app.run(debug=True, use_reloader=False, port=5002)
