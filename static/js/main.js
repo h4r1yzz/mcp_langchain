@@ -20,6 +20,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function addMessage(role, content) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${role}`;
+
+        if (role === 'assistant') {
+            content = content.replace(/\n/g, '<br>');
+        }
+
         messageDiv.innerHTML = content;
         chatContainer.appendChild(messageDiv);
         scrollToBottom();
@@ -37,11 +42,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const formData = new FormData();
         formData.append('file', file);
 
-        // Create a placeholder message with a spinner for the file upload
         const uploadMessageDiv = document.createElement('div');
         uploadMessageDiv.className = 'message assistant';
 
-        // Add the spinner inline with a "Uploading..." text
         const spinnerHTML = `<div>Uploading file... <div class="inline-spinner"></div></div>`;
         uploadMessageDiv.innerHTML = spinnerHTML;
 
@@ -112,8 +115,9 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                // Replace the loading spinner with the actual response
-                loadingMessageDiv.innerHTML = data.response;
+                // Convert newlines to <br> tags to preserve formatting
+                const formattedResponse = data.response.replace(/\n/g, '<br>');
+                loadingMessageDiv.innerHTML = formattedResponse;
 
                 if (data.token_usage) {
                     const usage = data.token_usage;

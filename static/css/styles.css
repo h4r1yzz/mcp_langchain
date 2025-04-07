@@ -37,6 +37,8 @@ body {
     border-radius: 5px;
     border: none;
     box-shadow: none;
+    white-space: normal;
+    line-height: 1.5;
 }
 
 .user {
@@ -47,6 +49,19 @@ body {
 .assistant {
     background-color: #f0f0f0;
     margin-right: 20%;
+}
+
+.message p {
+    margin: 0 0 10px 0;
+}
+
+.message ul, .message ol {
+    margin: 10px 0;
+    padding-left: 25px;
+}
+
+.message li {
+    margin-bottom: 5px;
 }
 
 .error-message {
