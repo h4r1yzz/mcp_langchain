@@ -210,7 +210,13 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
+                // Clear chat messages
                 elements.chatContainer.innerHTML = '';
+
+                // Clear uploaded files list
+                elements.filesList.innerHTML = '';
+
+                // Reset debug info
                 resetDebugInfo();
             }
         })
