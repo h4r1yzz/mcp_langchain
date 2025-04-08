@@ -48,8 +48,7 @@ class LASAnalyzerModel:
                 encoding_error_handler="ignore",
             )
 
-            if self.agent is None:
-                self.agent = create_react_agent(self.model, client.get_tools(), debug=True)
+            self.agent = create_react_agent(self.model, client.get_tools(), debug=True)
 
             # Prepare the query
             full_query = f"Using the LAS file at {file_path}, {query}"
