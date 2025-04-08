@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import atexit
 
 from flask import Flask, render_template, request, jsonify, url_for, send_from_directory
 from dotenv import load_dotenv
@@ -21,6 +22,10 @@ temp_dir = tempfile.mkdtemp()
 visualizations_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "visualizations")
 os.makedirs(visualizations_dir, exist_ok=True)
 
+# find where all directory of them 
+print(f"\nTemporary directory: {temp_dir}")
+print(f"Visualizations directory: {visualizations_dir}\n")
+
 # Initialize Anthropic model
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 
@@ -37,6 +42,9 @@ las_model = LASAnalyzerModel(model_instance, python_path)
 app_state = {}
 state_manager = StateManager(app_state)
 controller = LASChatController(las_model, state_manager)
+
+# Clean up upon exit the app
+atexit.register(lambda: controller.cleanup_session_files())
 
 @app.route('/')
 def index():
@@ -125,10 +133,10 @@ def serve_static(path):
 
 @app.route('/clear', methods=['POST'])
 def clear_chat():
-    """Clear the chat history."""
+    controller.cleanup_session_files()
     state_manager.clear_all()
-    return jsonify({"status": "success", "message": "Chat cleared"})
+    return jsonify({"status": "success", "message": "Chat and files cleared"})
 
 if __name__ == '__main__':
     # Disable auto-reloader to prevent conflicts with MCP server
-    app.run(debug=True, use_reloader=False, port=5002)
+    app.run(debug=True, use_reloader=False, port=5003)

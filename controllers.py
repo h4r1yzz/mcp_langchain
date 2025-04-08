@@ -99,3 +99,28 @@ class LASChatController:
             })
 
         return visualizations
+
+    def cleanup_session_files(self):
+        """Clean up files associated with the current session and all visualizations."""
+        uploaded_files = self.state.get_uploaded_files()
+
+        # Remove each uploaded file
+        for file_info in uploaded_files.values():
+            file_path = file_info.get('path')
+            if file_path and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+
+        # Also clear all visualization files
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        viz_dir = os.path.join(current_dir, "visualizations")
+        if os.path.exists(viz_dir):
+            for filename in os.listdir(viz_dir):
+                file_path = os.path.join(viz_dir, filename)
+                if os.path.isfile(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
