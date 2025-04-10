@@ -7,17 +7,19 @@ class LASChatController:
         self.state = state_manager
 
     def handle_query(self, query):
-        """Handle a user query and update the state."""
         query_time = time.time()
 
-        # Check if file is uploaded
-        if not self.state.get_file_path():
+        # Get all uploaded files
+        uploaded_files = self.state.get_uploaded_files()
+        if not uploaded_files:
             return {"status": "error", "message": "Please upload a LAS file first."}
 
         chat_history = self.state.get_messages()
-        
+        # Get all file paths from uploaded files
+        file_paths = [file_info['path'] for file_info in uploaded_files.values()]
+
         result = self.model.process_query(
-            self.state.get_file_path(), 
+            file_paths,
             query,
             chat_history
         )
@@ -45,7 +47,6 @@ class LASChatController:
         }
 
     def handle_file_upload(self, uploaded_file, temp_dir):
-        """Handle file upload and update state."""
         if not uploaded_file:
             return {"status": "error", "message": "No file provided"}
 
@@ -66,7 +67,6 @@ class LASChatController:
         }
 
     def _find_recent_visualizations(self, query_time):
-        """Find the most recent visualization created after query_time."""
         current_dir = os.path.dirname(os.path.abspath(__file__))
         viz_dir = os.path.join(current_dir, "visualizations")
 
@@ -101,7 +101,6 @@ class LASChatController:
         return visualizations
 
     def cleanup_session_files(self):
-        """Clean up files associated with the current session and all visualizations."""
         uploaded_files = self.state.get_uploaded_files()
 
         # Remove each uploaded file

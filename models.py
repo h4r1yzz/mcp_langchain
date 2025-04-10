@@ -34,7 +34,6 @@ class LASAnalyzerModel:
         self.agent = None
 
     def process_query(self, file_path, query, chat_history=None):
-        """Process a query with conversation history."""
         if chat_history is None:
             chat_history = []
         return asyncio.run(self._process_query_async(file_path, query, chat_history))
@@ -50,17 +49,44 @@ class LASAnalyzerModel:
 
             self.agent = create_react_agent(self.model, client.get_tools(), debug=True)
 
-            # Prepare the query
-            full_query = f"Using the LAS file at {file_path}, {query}"
+            if isinstance(file_paths, str):
+                file_paths = [file_paths]
+
+            # Prepare the query with information about all files
+            if len(file_paths) == 1:
+                file_info = f"Using the LAS file at {file_paths[0]}"
+            else:
+                files_list = "\n".join([f"- {path}" for path in file_paths])
+                file_info = f"Using the following LAS files:\n{files_list}"
+
+            full_query = f"{file_info}, {query}"
 
             system_message = """
             When responding to queries about LAS files:
             1. If you create a visualization, explicitly indicate this in your response with a special tag: [VISUALIZATION:filename].
             2. Maintain context from previous messages in the conversation.
-            3. When the user refers to something mentioned earlier (like "show me that", "yes please do that"), 
-            understand what they're referring to based on the conversation history.
-            4. If you offer to show visualizations or perform analyses, remember these offers when the user 
-            responds affirmatively without explicitly restating what they want.
+            3. When the user refers to something mentioned earlier (like "show me that", "yes please do that"),
+               understand what they're referring to based on the conversation history.
+            4. If you offer to show visualizations or perform analyses, remember these offers when the user
+               responds affirmatively without explicitly restating what they want.
+            5. You can access LAS file content using the access_resource tool with a resource URI.
+               Example: access_resource("las://file/sample.las") where "sample.las" is just the filename (without the path).
+               This provides more efficient access to the file content than repeatedly calling the analyzer tool.
+               The tool returns a dictionary with the file content and metadata.
+            6. When multiple LAS files are provided, you should analyze ALL files by calling las_file_analyzer on EACH file path.
+            7. When multiple files are available, organize your response to clearly show information from each file.
+            8. For each file, include the filename, well details, and key curve information.
+            9. When comparing files, create a structured comparison highlighting similarities and differences.
+            10. When asked to compare or analyze porosity or any other measurement, you MUST identify and include ALL relevant curves
+                for that measurement type from each well, not just one curve per well.
+            11. For neutron porosity specifically, you MUST search for and include ALL curves with the following characteristics:
+                - Curves with mnemonics containing: NPOR, NPHI, NPRL, NPRS, NPRD, CNL, TNPH, SPOR, SPHI, SNP, PHIN, TPHI, TNPL
+                - Curves with descriptions containing words like "neutron" and "porosity"
+                - You MUST include ALL such curves from EACH well in your analysis and visualizations
+            12. When creating visualizations for neutron porosity, you MUST include ALL identified neutron porosity curves in the plot with clear labels.
+            13. Example: If a well has both NPOR and NPRL curves, you MUST include BOTH in your analysis and visualizations when discussing neutron porosity.
+            14. When asked to compare neutron porosity between specific depths, first identify ALL neutron porosity curves in each well, then create
+                visualizations that include ALL these curves limited to the specified depth range.
             """
 
             messages = [SystemMessage(content=system_message)]
