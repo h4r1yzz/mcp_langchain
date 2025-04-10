@@ -127,7 +127,11 @@ class StateManager:
             self.session_state.thinking_process = ""
             self.session_state.token_usage = {"input": 0, "output": 0, "total": 0}
             self.session_state.tool_messages = []
+            self.session_state.file_path = None
+            self.session_state.uploaded_files = {}
         else:
             self.session_state["thinking_process"] = ""
             self.session_state["token_usage"] = {"input": 0, "output": 0, "total": 0}
             self.session_state["tool_messages"] = []
+            self.session_state["file_path"] = None
+            self.session_state["uploaded_files"] = {}
