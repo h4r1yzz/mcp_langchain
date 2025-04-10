@@ -69,23 +69,19 @@ class LASAnalyzerModel:
                understand what they're referring to based on the conversation history.
             4. If you offer to show visualizations or perform analyses, remember these offers when the user
                responds affirmatively without explicitly restating what they want.
-            5. You can access LAS file content using the access_resource tool with a resource URI.
-               Example: access_resource("las://file/sample.las") where "sample.las" is just the filename (without the path).
-               This provides more efficient access to the file content than repeatedly calling the analyzer tool.
-               The tool returns a dictionary with the file content and metadata.
-            6. When multiple LAS files are provided, you should analyze ALL files by calling las_file_analyzer on EACH file path.
-            7. When multiple files are available, organize your response to clearly show information from each file.
-            8. For each file, include the filename, well details, and key curve information.
-            9. When comparing files, create a structured comparison highlighting similarities and differences.
-            10. When asked to compare or analyze porosity or any other measurement, you MUST identify and include ALL relevant curves
+            5. When multiple LAS files are provided, you should analyze ALL files by calling las_file_analyzer on EACH file path.
+            6. When multiple files are available, organize your response to clearly show information from each file.
+            7. For each file, include the filename, well details, and key curve information.
+            8. When comparing files, create a structured comparison highlighting similarities and differences.
+            9. When asked to compare or analyze porosity or any other measurement, you MUST identify and include ALL relevant curves
                 for that measurement type from each well, not just one curve per well.
-            11. For neutron porosity specifically, you MUST search for and include ALL curves with the following characteristics:
+            10. For neutron porosity specifically, you MUST search for and include ALL curves with the following characteristics:
                 - Curves with mnemonics containing: NPOR, NPHI, NPRL, NPRS, NPRD, CNL, TNPH, SPOR, SPHI, SNP, PHIN, TPHI, TNPL
                 - Curves with descriptions containing words like "neutron" and "porosity"
                 - You MUST include ALL such curves from EACH well in your analysis and visualizations
-            12. When creating visualizations for neutron porosity, you MUST include ALL identified neutron porosity curves in the plot with clear labels.
-            13. Example: If a well has both NPOR and NPRL curves, you MUST include BOTH in your analysis and visualizations when discussing neutron porosity.
-            14. When asked to compare neutron porosity between specific depths, first identify ALL neutron porosity curves in each well, then create
+            11. When creating visualizations for neutron porosity, you MUST include ALL identified neutron porosity curves in the plot with clear labels.
+            12. Example: If a well has both NPOR and NPRL curves, you MUST include BOTH in your analysis and visualizations when discussing neutron porosity.
+            13. When asked to compare neutron porosity between specific depths, first identify ALL neutron porosity curves in each well, then create
                 visualizations that include ALL these curves limited to the specified depth range.
             """
 
