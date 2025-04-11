@@ -1,5 +1,5 @@
-import re
 import asyncio
+import json
 
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain_core.messages import ToolMessage
@@ -49,8 +49,10 @@ class LASAnalyzerModel:
 
             self.agent = create_react_agent(self.model, client.get_tools(), debug=True)
 
-            if isinstance(file_paths, str):
-                file_paths = [file_paths]
+            if isinstance(file_path, str):
+                file_paths = [file_path]
+            else:
+                file_paths = file_path
 
             # Prepare the query with information about all files
             if len(file_paths) == 1:
@@ -63,25 +65,24 @@ class LASAnalyzerModel:
 
             system_message = """
             When responding to queries about LAS files:
-            1. If you create a visualization, explicitly indicate this in your response with a special tag: [VISUALIZATION:filename].
-            2. Maintain context from previous messages in the conversation.
-            3. When the user refers to something mentioned earlier (like "show me that", "yes please do that"),
+            1. Maintain context from previous messages in the conversation.
+            2. When the user refers to something mentioned earlier (like "show me that", "yes please do that"),
                understand what they're referring to based on the conversation history.
-            4. If you offer to show visualizations or perform analyses, remember these offers when the user
+            3. If you offer to show visualizations or perform analyses, remember these offers when the user
                responds affirmatively without explicitly restating what they want.
-            5. When multiple LAS files are provided, you should analyze ALL files by calling las_file_analyzer on EACH file path.
-            6. When multiple files are available, organize your response to clearly show information from each file.
-            7. For each file, include the filename, well details, and key curve information.
-            8. When comparing files, create a structured comparison highlighting similarities and differences.
-            9. When asked to compare or analyze porosity or any other measurement, you MUST identify and include ALL relevant curves
+            4. When multiple LAS files are provided, you should analyze ALL files by calling las_file_analyzer on EACH file path.
+            5. When multiple files are available, organize your response to clearly show information from each file.
+            6. For each file, include the filename, well details, and key curve information.
+            7. When comparing files, create a structured comparison highlighting similarities and differences.
+            8. When asked to compare or analyze porosity or any other measurement, you MUST identify and include ALL relevant curves
                 for that measurement type from each well, not just one curve per well.
-            10. For neutron porosity specifically, you MUST search for and include ALL curves with the following characteristics:
+            9. For neutron porosity specifically, you MUST search for and include ALL curves with the following characteristics:
                 - Curves with mnemonics containing: NPOR, NPHI, NPRL, NPRS, NPRD, CNL, TNPH, SPOR, SPHI, SNP, PHIN, TPHI, TNPL
                 - Curves with descriptions containing words like "neutron" and "porosity"
                 - You MUST include ALL such curves from EACH well in your analysis and visualizations
-            11. When creating visualizations for neutron porosity, you MUST include ALL identified neutron porosity curves in the plot with clear labels.
-            12. Example: If a well has both NPOR and NPRL curves, you MUST include BOTH in your analysis and visualizations when discussing neutron porosity.
-            13. When asked to compare neutron porosity between specific depths, first identify ALL neutron porosity curves in each well, then create
+            10. When creating visualizations for neutron porosity, you MUST include ALL identified neutron porosity curves in the plot with clear labels.
+            11. Example: If a well has both NPOR and NPRL curves, you MUST include BOTH in your analysis and visualizations when discussing neutron porosity.
+            12. When asked to compare neutron porosity between specific depths, first identify ALL neutron porosity curves in each well, then create
                 visualizations that include ALL these curves limited to the specified depth range.
             """
 
@@ -98,17 +99,16 @@ class LASAnalyzerModel:
             thinking_process, tool_messages = self.extract_ai_and_tool_messages(response)
             token_usage, token_cost = self._extract_token_usage_and_cost(response)
             response_text = self._extract_response_text(response)
-            viz_info = self._extract_visualization_info(response_text)
+            plotly_visualizations = self._extract_plotly_visualizations(tool_messages)
 
             return {
-                "response_text": viz_info["clean_response"],
+                "response_text": response_text,
                 "thinking_process": thinking_process,
                 "tool_messages": tool_messages,
                 "token_usage": token_usage,
                 "token_cost": token_cost,
                 "raw_response": response,
-                "should_display_viz": viz_info["should_display_viz"],
-                "viz_info": viz_info["viz_info"],
+                "plotly_visualizations": plotly_visualizations
             }
     
     def extract_ai_and_tool_messages(self, response):
@@ -196,34 +196,31 @@ class LASAnalyzerModel:
 
         return "I couldn't process that request."
 
-    def _extract_visualization_info(self, response_text):
-        """Extract visualization information from the response text."""
-        # Ensure response_text is a string
-        if not isinstance(response_text, str):
-            try:
-                response_text = str(response_text)
-            except:
-                return {
-                    "should_display_viz": False,
-                    "viz_info": [],
-                    "clean_response": response_text,
-                }
-        
-        # Look for all visualization tags
-        viz_matches = re.findall(r"\[VISUALIZATION:(.*?)\]", response_text)
-        
-        if viz_matches:
-            viz_infos = [match.strip() for match in viz_matches]
-            clean_response = re.sub(r"\[VISUALIZATION:.*?\]", "", response_text).strip()
+    def _extract_plotly_visualizations(self, tool_messages):
+        visualizations = []
 
-            return {
-                "should_display_viz": True,
-                "viz_info": viz_infos,  
-                "clean_response": clean_response,
-            }
+        for msg in tool_messages:
+            # Check if this is a visualization tool message
+            if isinstance(msg, dict) and msg.get("name") == "visualize_well_log":
+                content = msg.get("content", "")
+                if not content or not isinstance(content, str):
+                    continue
 
-        return {
-            "should_display_viz": False,
-            "viz_info": [],
-            "clean_response": response_text,
-        }
+                try:
+                    # Parse the JSON content
+                    content_json = json.loads(content)
+
+                    # Extract the visualization metadata
+                    if "plot_id" in content_json and "plot_json_path" in content_json:
+                        visualizations.append({
+                            "plot_id": content_json["plot_id"],
+                            "plot_json_path": content_json["plot_json_path"],
+                            "visualization_type": content_json.get("visualization_type", ""),
+                            "curves": content_json.get("curves", []),
+                            "metadata": content_json.get("metadata", {})
+                        })
+                except json.JSONDecodeError:
+                    # Skip invalid JSON
+                    continue
+
+        return visualizations

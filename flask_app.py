@@ -2,8 +2,8 @@ import os
 import sys
 import tempfile
 import atexit
-
-from flask import Flask, render_template, request, jsonify, url_for, send_from_directory
+import json
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 
@@ -21,10 +21,6 @@ app = Flask(__name__)
 temp_dir = tempfile.mkdtemp()
 visualizations_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "visualizations")
 os.makedirs(visualizations_dir, exist_ok=True)
-
-# find where all directory of them 
-print(f"\nTemporary directory: {temp_dir}")
-print(f"Visualizations directory: {visualizations_dir}\n")
 
 # Initialize Anthropic model
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -100,15 +96,35 @@ def process_query():
     # Add assistant response to history
     state_manager.add_message("assistant", result["response"])
 
-    visualizations = []
-    if result["should_display_viz"] and result.get("visualizations"):
-        for viz in result["visualizations"]:
-            viz_path = viz["path"]
-            viz_filename = os.path.basename(viz_path)
-            visualizations.append({
-                "filename": viz_filename,
-                "url": url_for('visualization', filename=viz_filename)
-            })
+    # Handle Plotly visualizations
+    plotly_visualizations = []
+    if result.get("plotly_visualizations"):
+        for viz in result["plotly_visualizations"]:
+            # Read the JSON file containing the Plotly data
+            if 'plot_json_path' in viz:
+                try:
+                    # Check if the file exists
+                    if not os.path.exists(viz['plot_json_path']):
+                        continue
+
+                    with open(viz['plot_json_path'], 'r') as f:
+                        plot_json = json.load(f)
+
+                    # Validate the JSON structure
+                    if "plot_data" not in plot_json or "plot_layout" not in plot_json:
+                        continue
+
+                    plotly_visualizations.append({
+                        "plot_id": viz["plot_id"],
+                        "plot_data": plot_json["plot_data"],
+                        "plot_layout": plot_json["plot_layout"],
+                        "visualization_type": viz.get("visualization_type", ""),
+                        "type": "plotly"
+                    })
+                except Exception:
+                    continue
+            else:
+                continue
 
     return jsonify({
         "status": "success",
@@ -117,8 +133,7 @@ def process_query():
         "token_usage": result["token_usage"],
         "token_cost": result["token_cost"],
         "tool_messages": result["tool_messages"],
-        "visualizations": visualizations,
-        "should_display_viz": result["should_display_viz"]
+        "plotly_visualizations": plotly_visualizations
     })
 
 @app.route('/visualization/<filename>')
@@ -139,4 +154,4 @@ def clear_chat():
 
 if __name__ == '__main__':
     # Disable auto-reloader to prevent conflicts with MCP server
-    app.run(debug=True, use_reloader=False, port=5003)
+    app.run(debug=True, use_reloader=False, port=5004)

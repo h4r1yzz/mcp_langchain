@@ -4,10 +4,12 @@ import sys
 from typing import Dict, List, Any, Union, Optional, Tuple
 import lasio
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
-import matplotlib.pyplot as plt
 import time
+import json
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.express as px  # For potential use in crossplots
+from plotly.utils import PlotlyJSONEncoder
 
 # Global variable to store file paths
 LAS_FILE_PATHS: List[str] = []
@@ -430,7 +432,7 @@ def get_specific_curve_value(file_path: str, curve_name: str, index: Optional[in
             
             # Get 2 values before and 2 values after if available
             for i in range(max(0, closest_idx - 2), min(len(curve.data), closest_idx + 3)):
-                if i != closest_idx:  # Skip the main value as we already have it
+                if i != closest_idx:  # Skip the main if already have it
                     context_values.append(float(curve.data[i]))
                     context_depths.append(float(depth_curve.data[i]))
             
@@ -490,63 +492,54 @@ def visualize_well_log(
     options: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Generate visualizations of well log data.
-    
+    Generate visualizations of well log data using Plotly.
+
     Args:
-        file_path: Path to the LAS file
-        visualization_type: Type of visualization to generate
-            - "multi_track": Track-based log plot with multiple curves
-            - "crossplot": Scatter plot comparing two curves
-            - "heatmap": Heatmap visualization of multiple curves
-        curve_names: List of curve names to visualize
-        options: Optional dictionary of visualization options
-            - depth_range: [min_depth, max_depth] to limit the plot
-            - colors: List of colors for curves
-            - title: Title for the plot
-            - x_curve, y_curve: For crossplot (first two curve_names used if not specified)
-            - color_curve: For crossplot coloring
-            - colormap: For heatmap (default: "viridis")
-            - track_widths: For multi_track (relative widths)
-            
+        file_path: Path to the LAS file.
+        visualization_type: Type of visualization to generate.
+            Options:
+              - "multi_track": Track-based log plot with multiple curves.
+              - "crossplot": Scatter plot comparing two curves.
+              - "heatmap": Heatmap visualization of multiple curves.
+        curve_names: List of curve names to visualize.
+        options: Optional dictionary of visualization options. Supported keys:
+            - depth_range: [min_depth, max_depth] to limit the plot.
+            - colors: List of colors for curves (for multi_track).
+            - title: Title for the plot.
+            - x_curve, y_curve: For crossplot (first two curves used by default).
+            - color_curve: For crossplot color coding.
+            - colormap: For heatmap (default: "viridis").
+            - track_widths: List of relative widths for multi_track.
+
     Returns:
         Dictionary containing:
-        - image_filename: Filename of the saved visualization image
-        - visualization_type: Type of visualization generated
-        - curves: List of curves included in the visualization
-        - metadata: Additional information about the visualization
+          - plot_id: Unique identifier for the plot.
+          - plot_json_path: Path to the JSON file containing the Plotly data.
+          - visualization_type: The type of visualization generated.
+          - curves: List of curves included in the visualization.
+          - metadata: Additional information (such as depth range and curve units).
     """
     # Get default options
     if options is None:
         options = {}
-    
-    # Use las_file_analyzer to get the data
+
+    # Use the existing LAS file analyzer to get metadata and curve information
     las_data = las_file_analyzer(file_path)
-    
-    # Check for errors in las_file_analyzer result
     if "error" in las_data:
         return {"error": las_data["error"]}
-    
-    # Create directory for visualizations in the project directory
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    viz_dir = os.path.join(current_dir, "visualizations")
-    os.makedirs(viz_dir, exist_ok=True)
-    
-    # Generate a unique filename based on timestamp and visualization type
+
+    # Generate a unique ID for the visualization
     timestamp = int(time.time())
-    image_filename = f"{visualization_type}_{timestamp}.png"
-    image_path = os.path.join(viz_dir, image_filename)
-    
-    # Extract curve data from las_data
+    plot_id = f"{visualization_type}_{timestamp}"
+
+    # Validate requested curves based on metadata
     available_curves = {curve["name"]: curve for curve in las_data["curves_summary"]["curves"]}
-    
-    # Validate requested curves
     for curve in curve_names:
         if curve not in available_curves:
             return {"error": f"Curve '{curve}' not found in the LAS file. Available curves: {', '.join(available_curves.keys())}"}
-    
-    # Read the LAS file directly for visualization
+
+    # Read the LAS file and convert to DataFrame for visualization
     try:
-        import lasio
         las = lasio.read(file_path)
         df = las.df()
     except Exception as e:
@@ -557,74 +550,85 @@ def visualize_well_log(
     if depth_range and len(depth_range) == 2:
         min_depth, max_depth = depth_range
         df = df[(df.index >= min_depth) & (df.index <= max_depth)]
-    
-    # Get title or generate default
+
+    # Get title for the plot
     title = options.get("title", f"Well Log Visualization - {visualization_type.title()}")
-    
-    # Generate the appropriate visualization based on type
+
+    fig = None  # Initialize figure
+
     if visualization_type.lower() == "multi_track":
-        # Multi-track log plot implementation
-        track_widths = options.get("track_widths", [1] * len(curve_names))
-        colors = options.get("colors", [f"C{i}" for i in range(len(curve_names))])
-        
-        # Create figure with appropriate dimensions
-        fig_width = 2 + 2 * len(curve_names)  # Base width + width per track
-        fig_height = 12  # Fixed height for well logs (typically tall)
-        fig, axes = plt.subplots(1, len(curve_names), figsize=(fig_width, fig_height), 
-                                sharey=True, gridspec_kw={'width_ratios': track_widths})
-        
-        # Handle single curve case
-        if len(curve_names) == 1:
-            axes = [axes]
-        
+        n_tracks = len(curve_names)
+        colors = options.get("colors", [f"rgba({i*40 % 255}, {i*70 % 255}, {i*90 % 255}, 1)" for i in range(n_tracks)])
+
+        # Create subplots: 1 row, n_tracks columns; share y-axis (depth)
+        fig = make_subplots(rows=1, cols=n_tracks, shared_yaxes=True,
+                            horizontal_spacing=0.02,
+                            subplot_titles=[f"{curve} ({available_curves[curve].get('unit', '')})" for curve in curve_names])
+
         # Plot each curve in its own track
-        for i, (curve, ax) in enumerate(zip(curve_names, axes)):
+        for i, curve in enumerate(curve_names):
+            # For multi_track, skip plotting the "DEPT" curve if it's not a column in df,
+            # because depth is used as the common y-axis.
+            if curve == "DEPT" and curve not in df.columns:
+                continue
+
+            # Curve existence was already validated above
             curve_data = df[curve].values
+
             depth_data = df.index.values
-            
-            # Get curve metadata
-            curve_info = available_curves[curve]
-            unit = curve_info["unit"]
-            
-            # Plot the curve
-            ax.plot(curve_data, depth_data, color=colors[i], linewidth=1.5)
-            
-            # Set labels and grid
-            ax.set_title(curve)
-            ax.set_xlabel(f"{curve} ({unit})" if unit else curve)
-            ax.grid(True, linestyle='--', alpha=0.7)
-            
-            # Invert y-axis (standard for well logs - depth increases downward)
-            ax.invert_yaxis()
-            
-            # Add curve statistics as text
+
+            # Add trace for the curve
+            fig.add_trace(
+                go.Scatter(
+                    x=curve_data,
+                    y=depth_data,
+                    mode="lines",
+                    line=dict(color=colors[i], width=2),
+                    name=curve
+                ),
+                row=1, col=i+1
+            )
+            # No need for x-axis titles since we have subplot titles
+            fig.update_xaxes(showticklabels=True, row=1, col=i+1)
+
+            # Add annotation for statistics if available
             if curve in las_data["curve_data"]:
                 stats = las_data["curve_data"][curve]
-                if "min" in stats and "max" in stats and stats["min"] is not None and stats["max"] is not None:
-                    ax.text(0.5, 0.02, 
-                            f"Min: {stats['min']:.2f}\nMax: {stats['max']:.2f}", 
-                            transform=ax.transAxes, ha='center', 
-                            bbox=dict(facecolor='white', alpha=0.7))
-        
-        # Set common y-label
-        fig.text(0.04, 0.5, 'Depth', va='center', rotation='vertical', fontsize=12)
-        
-        # Set title
-        fig.suptitle(title, fontsize=14)
-        
-        # Adjust layout
-        plt.tight_layout()
-        fig.subplots_adjust(top=0.95, left=0.1)
-        
+                if stats.get("min") is not None and stats.get("max") is not None:
+                    annotation_text = f"Min: {stats['min']:.2f}<br>Max: {stats['max']:.2f}"
+                    # For the first subplot, use "x domain" (no number) per Plotly conventions
+                    if i == 0:
+                        xref_val = "x domain"
+                    else:
+                        xref_val = f"x{i+1} domain"
+                    fig.add_annotation(dict(
+                        xref=xref_val,
+                        yref="paper",
+                        x=0.5,
+                        y=0.02,
+                        text=annotation_text,
+                        showarrow=False,
+                        bgcolor="white",
+                        opacity=0.7
+                    ), row=1, col=i+1)
+
+        # Invert y-axis (depth increasing downward)
+        fig.update_yaxes(autorange="reversed")
+        # Set common y-label for depth (applied to the first subplot)
+        fig.update_yaxes(title_text="Depth", row=1, col=1)
+        # Set overall title and layout with compact dimensions
+        # Reduce margins and set appropriate height and width
+        # Use zero left margin to remove the gap completely
+        fig.update_layout(title=title, showlegend=False, height=400,
+                          width=max(600, 150 * n_tracks),
+                          margin=dict(l=0, r=40, t=50, b=40))
+
     elif visualization_type.lower() == "crossplot":
-        # Crossplot implementation
         if len(curve_names) < 2:
             return {"error": "Crossplot requires at least two curves"}
-        
-        # Get x and y curves
         x_curve = options.get("x_curve", curve_names[0])
         y_curve = options.get("y_curve", curve_names[1])
-        
+
         # Validate curves
         if x_curve not in available_curves:
             return {"error": f"X-axis curve '{x_curve}' not found"}
@@ -633,98 +637,113 @@ def visualize_well_log(
         
         # Get color curve if specified
         color_curve = options.get("color_curve", None)
-        if color_curve and color_curve not in available_curves:
-            return {"error": f"Color curve '{color_curve}' not found"}
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        # Get data
+        fig = go.Figure()
+
+        # Set up data for x, y, and optional color
         x_data = df[x_curve].values
         y_data = df[y_curve].values
+        marker_dict = dict(size=7, opacity=0.7)
+        
         
         # Create scatter plot
+
+        # Create scatter plot
         if color_curve:
+            if color_curve not in available_curves:
+                return {"error": f"Color curve '{color_curve}' not found"}
             color_data = df[color_curve].values
-            scatter = ax.scatter(x_data, y_data, c=color_data, cmap=options.get("colormap", "viridis"), 
-                               alpha=0.7, edgecolors='none')
-            cbar = plt.colorbar(scatter, ax=ax)
-            cbar.set_label(f"{color_curve} ({available_curves[color_curve]['unit']})" 
-                          if available_curves[color_curve]['unit'] else color_curve)
-        else:
-            ax.scatter(x_data, y_data, alpha=0.7, edgecolors='none')
-        
-        # Set labels and title
-        x_unit = available_curves[x_curve]["unit"]
-        y_unit = available_curves[y_curve]["unit"]
-        
-        ax.set_xlabel(f"{x_curve} ({x_unit})" if x_unit else x_curve)
-        ax.set_ylabel(f"{y_curve} ({y_unit})" if y_unit else y_curve)
-        ax.set_title(title)
-        
-        # Add grid
-        ax.grid(True, linestyle='--', alpha=0.7)
-        
+            marker_dict.update(color=color_data, colorscale=options.get("colormap", "viridis"),
+                               colorbar=dict(title=f"{color_curve} ({available_curves[color_curve].get('unit', '')})"))
+
+        fig.add_trace(go.Scatter(
+            x=x_data,
+            y=y_data,
+            mode="markers",
+            marker=marker_dict
+        ))
+        # Set axis labels and title
+        x_unit = available_curves[x_curve].get("unit", "")
+        y_unit = available_curves[y_curve].get("unit", "")
+        fig.update_layout(
+            title=title,
+            xaxis_title=f"{x_curve} ({x_unit})" if x_unit else x_curve,
+            yaxis_title=f"{y_curve} ({y_unit})" if y_unit else y_curve,
+            template="simple_white",
+            height=400,
+            width=500,
+            margin=dict(l=40, r=40, t=50, b=40)
+        )
+        fig.update_xaxes(showgrid=True, gridwidth=0.5, gridcolor="lightgrey")
+        fig.update_yaxes(showgrid=True, gridwidth=0.5, gridcolor="lightgrey")
+
     elif visualization_type.lower() == "heatmap":
-        # Heatmap implementation
         if len(curve_names) < 1:
             return {"error": "Heatmap requires at least one curve"}
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=(12, 10))
-        
-        # Prepare data matrix
+
+        # Prepare data matrix with dimensions: (number of rows in df) x (number of curves)
         data_matrix = np.zeros((len(df), len(curve_names)))
-        
         for i, curve in enumerate(curve_names):
-            data_matrix[:, i] = df[curve].values
-            
-            # Normalize each column (curve) to 0-1 range for better visualization
-            col_min = np.nanmin(data_matrix[:, i])
-            col_max = np.nanmax(data_matrix[:, i])
+            col_data = df[curve].values.astype(float)
+            # Normalize the curve data to 0-1 range
+            col_min = np.nanmin(col_data)
+            col_max = np.nanmax(col_data)
             if col_max > col_min:
-                data_matrix[:, i] = (data_matrix[:, i] - col_min) / (col_max - col_min)
-        
-        # Create heatmap
-        colormap = options.get("colormap", "viridis")
-        im = ax.imshow(data_matrix, aspect='auto', cmap=colormap, interpolation='none')
-        
-        # Set y-ticks (depths)
-        depth_step = max(1, len(df) // 20)  # Show at most 20 depth labels
+                normalized = (col_data - col_min) / (col_max - col_min)
+            else:
+                normalized = col_data
+            data_matrix[:, i] = normalized
+
         depths = df.index.values
-        y_ticks = np.arange(0, len(depths), depth_step)
-        y_tick_labels = [f"{depths[i]:.1f}" for i in y_ticks]
-        ax.set_yticks(y_ticks)
-        ax.set_yticklabels(y_tick_labels)
-        
-        # Set x-ticks (curve names)
-        ax.set_xticks(np.arange(len(curve_names)))
-        ax.set_xticklabels(curve_names, rotation=45, ha='right')
-        
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label('Normalized Value')
-        
-        # Set labels and title
-        ax.set_ylabel('Depth')
-        ax.set_title(title)
-        
+        n = len(depths)
+        step = max(1, n // 20)
+        y_ticks = depths[::step]
+
+        fig = go.Figure(data=go.Heatmap(
+            z=data_matrix,
+            x=curve_names,
+            y=depths,
+            colorscale=options.get("colormap", "viridis"),
+            colorbar=dict(title="Normalized Value")
+        ))
+        fig.update_layout(
+            title=title,
+            xaxis=dict(tickangle=45),
+            yaxis=dict(title="Depth", autorange="reversed"),
+            height=400,
+            width=550,
+            template="simple_white",
+            margin=dict(l=40, r=40, t=50, b=40)
+        )
+        fig.update_yaxes(tickmode="array", tickvals=y_ticks, ticktext=[f"{val:.1f}" for val in y_ticks])
+
     else:
         return {"error": f"Unsupported visualization type: {visualization_type}"}
-    
-    # Save the figure to file
-    plt.savefig(image_path, dpi=150, bbox_inches='tight')
-    plt.close(fig)
-    
-    # Return the image filename and metadata
+
+    # Create visualization directory if it doesn't exist
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    viz_dir = os.path.join(current_dir, "visualizations")
+    os.makedirs(viz_dir, exist_ok=True)
+
+    # Save the Plotly figure as a JSON file
+    fig_dict = fig.to_dict()
+    plot_json_path = os.path.join(viz_dir, f"{plot_id}.json")
+
+    with open(plot_json_path, 'w') as f:
+        json.dump({
+            "plot_data": fig_dict['data'],
+            "plot_layout": fig_dict['layout']
+        }, f, cls=PlotlyJSONEncoder)
+
+    metadata = {
+        "depth_range": [float(df.index.min()), float(df.index.max())] if not df.empty else None,
+        "curve_units": {curve: available_curves[curve].get("unit", "") for curve in curve_names}
+    }
     return {
-        "image_filename": image_filename,  # Just the filename, not the full path
+        "plot_id": plot_id,
+        "plot_json_path": plot_json_path,
         "visualization_type": visualization_type,
         "curves": curve_names,
-        "metadata": {
-            "depth_range": [float(df.index.min()), float(df.index.max())] if not df.empty else None,
-            "curve_units": {curve: available_curves[curve]["unit"] for curve in curve_names}
-        }
+        "metadata": metadata
     }
 
 if __name__ == "__main__":
