@@ -102,14 +102,106 @@ document.addEventListener('DOMContentLoaded', function() {
     function displayResponse(responseDiv, data) {
         responseDiv.innerHTML = '';
 
-        if (data.visualizations && data.visualizations.length > 0) {
-            data.visualizations.forEach(viz => {
-                const imgElement = document.createElement('img');
-                imgElement.src = viz.url;
-                imgElement.className = 'visualization';
-                imgElement.alt = 'Visualization';
-                responseDiv.appendChild(imgElement);
+        // Create a container for all visualizations
+        const visualizationsContainer = document.createElement('div');
+        visualizationsContainer.className = 'visualizations-wrapper';
+
+        let hasVisualizations = false;
+
+        // No legacy static visualizations
+
+        // Display interactive Plotly visualizations
+        if (data.plotly_visualizations && data.plotly_visualizations.length > 0) {
+            data.plotly_visualizations.forEach((viz, index) => {
+                hasVisualizations = true;
+
+                // Create a container for this visualization
+                const vizContainer = document.createElement('div');
+                vizContainer.className = 'visualization-container';
+
+                // Add a title for the visualization
+                const vizTitle = document.createElement('div');
+                vizTitle.className = 'visualization-title';
+                vizTitle.textContent = viz.visualization_type ?
+                    `${viz.visualization_type.charAt(0).toUpperCase() + viz.visualization_type.slice(1)} Visualization` :
+                    `Visualization ${index + 1}`;
+                vizContainer.appendChild(vizTitle);
+
+                // Create a container for the Plotly visualization
+                const plotContainer = document.createElement('div');
+
+                // Clean the ID to ensure it's valid for DOM
+                // Remove any special characters that might cause issues
+                const cleanId = viz.plot_id.replace(/[^a-zA-Z0-9_]/g, '_');
+
+                // Ensure the ID is exactly as expected by Plotly
+                plotContainer.id = cleanId;
+                plotContainer.className = 'plotly-visualization';
+
+                // Store both the original and cleaned IDs for debugging
+                plotContainer.setAttribute('data-original-plot-id', viz.plot_id);
+                plotContainer.setAttribute('data-clean-plot-id', cleanId);
+
+                // Store the cleaned ID back in the viz object for later use
+                viz.clean_plot_id = cleanId;
+
+                vizContainer.appendChild(plotContainer);
+
+
+
+                // Add the container to the visualizations wrapper
+                visualizationsContainer.appendChild(vizContainer);
+
+
+
+                // Render the Plotly visualization after a short delay to ensure DOM is ready
+                setTimeout(() => {
+                    try {
+                        // Use the cleaned ID to find the element
+                        const plotId = viz.clean_plot_id || viz.plot_id.replace(/[^a-zA-Z0-9_]/g, '_');
+
+                        // Get the plot element
+                        const plotElement = document.getElementById(plotId);
+                        if (!plotElement || typeof Plotly === 'undefined') {
+                            return;
+                        }
+
+                        // Ensure the container has appropriate dimensions for plotting
+                        plotElement.style.minHeight = '350px';
+                        plotElement.style.height = '400px';
+                        plotElement.style.maxWidth = '100%';
+                        plotElement.style.border = '1px solid #ddd';
+                        plotElement.style.backgroundColor = '#f9f9f9';
+
+                        // Add a border to make the plot container visible
+                        plotElement.style.border = '1px solid #ddd';
+
+                        // Skip if plot data is invalid
+                        if (!Array.isArray(viz.plot_data) || viz.plot_data.length === 0) {
+                            return;
+                        }
+
+                        // Ensure layout has proper size settings
+                        const layout = viz.plot_layout || {};
+                        layout.height = layout.height || 380;
+                        layout.width = layout.width || Math.min(800, 0.75 * window.innerWidth); // Cap at 800px or 75% of window width
+                        layout.autosize = true;
+                        layout.margin = layout.margin || {l: 50, r: 50, t: 50, b: 50}; // Reduce margins
+
+                        // Render the plot with updated layout
+                        Plotly.newPlot(plotId, viz.plot_data, layout, {responsive: true, useResizeHandler: true})
+                            .catch(() => {});
+                            // Silent error handling - visualization will simply not appear if there's an error
+                    } catch (error) {
+                        // Silent error handling
+                    }
+                }, 200); // Increased timeout to ensure DOM is ready
             });
+        }
+
+        // Add visualizations to the response if there are any
+        if (hasVisualizations) {
+            responseDiv.appendChild(visualizationsContainer);
         }
 
         // FORMATTED RESPONSE
@@ -246,8 +338,8 @@ document.addEventListener('DOMContentLoaded', function() {
     elements.clearChatButton.addEventListener('click', clearChat);
 
     const collapsibles = document.getElementsByClassName('collapsible');
-    for (let i = 0; i < collapsibles.length; i++) {
-        collapsibles[i].addEventListener('click', function() {
+    for (const collapsible of collapsibles) {
+        collapsible.addEventListener('click', function() {
             this.classList.toggle('active');
             const content = this.nextElementSibling;
             content.style.display = content.style.display === 'block' ? 'none' : 'block';
