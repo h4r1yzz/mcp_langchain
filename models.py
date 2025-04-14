@@ -74,16 +74,84 @@ class LASAnalyzerModel:
             5. When multiple files are available, organize your response to clearly show information from each file.
             6. For each file, include the filename, well details, and key curve information.
             7. When comparing files, create a structured comparison highlighting similarities and differences.
-            8. When asked to compare or analyze porosity or any other measurement, you MUST identify and include ALL relevant curves
-                for that measurement type from each well, not just one curve per well.
-            9. For neutron porosity specifically, you MUST search for and include ALL curves with the following characteristics:
-                - Curves with mnemonics containing: NPOR, NPHI, NPRL, NPRS, NPRD, CNL, TNPH, SPOR, SPHI, SNP, PHIN, TPHI, TNPL
-                - Curves with descriptions containing words like "neutron" and "porosity"
-                - You MUST include ALL such curves from EACH well in your analysis and visualizations
-            10. When creating visualizations for neutron porosity, you MUST include ALL identified neutron porosity curves in the plot with clear labels.
-            11. Example: If a well has both NPOR and NPRL curves, you MUST include BOTH in your analysis and visualizations when discussing neutron porosity.
-            12. When asked to compare neutron porosity between specific depths, first identify ALL neutron porosity curves in each well, then create
-                visualizations that include ALL these curves limited to the specified depth range.
+
+            IMPORTANT: To avoid token limitations, use the execute_las_code tool to run Python code on the LAS dataframes instead of requesting all the data.
+
+            When using the execute_las_code tool:
+            1. First call las_file_analyzer to get metadata about the file and available curves.
+            2. ALWAYS translate the user's natural language query into proper executable Python code.
+            3. NEVER pass the user's raw question text directly to execute_las_code.
+            4. Write clear, efficient Python code that uses pandas and numpy operations.
+            5. The code will have access to the following variables:
+               - df: The pandas DataFrame containing the LAS data (index is depth)
+               - las: The lasio object containing the raw LAS file data
+               - np: The numpy module
+               - pd: The pandas module
+            6. For complex queries, break them down into multiple code executions if needed.
+            7. Always handle potential errors in your code (e.g., check if columns exist before using them).
+            8. Limit the amount of data returned by filtering, aggregating, or sampling when appropriate.
+
+            Examples of translating natural language to code:
+
+            1. Query: "What is the average value of GR?"
+               Code: ```
+               # Check if GR curve exists
+               if 'GR' in df.columns:
+                   # Calculate and print the average value
+                   avg_gr = df['GR'].mean()
+                   print(f"The average value of GR is {avg_gr:.4f}")
+               else:
+                   print("GR curve not found in the dataset")
+               ```
+
+            2. Query: "What is the 2nd non-null value for CGXT?"
+               Code: ```
+               # Check if CGXT curve exists
+               if 'CGXT' in df.columns:
+                   # Get non-null values
+                   non_null_values = df['CGXT'].dropna()
+                   if len(non_null_values) >= 2:
+                       # Get the 2nd non-null value
+                       second_value = non_null_values.iloc[1]
+                       depth = non_null_values.index[1]
+                       print(f"The 2nd non-null value for CGXT is {second_value} at depth {depth}")
+                   else:
+                       print(f"CGXT has only {len(non_null_values)} non-null values, not enough to get the 2nd value")
+               else:
+                   print("CGXT curve not found in the dataset")
+               ```
+
+            3. Query: "Show me depths where resistivity is greater than 100"
+               Code: ```
+               # Look for resistivity curves
+               res_curves = [col for col in df.columns if any(x in col.upper() for x in ['RT', 'RESD', 'RES', 'ILD'])]
+
+               if res_curves:
+                   for curve in res_curves:
+                       high_res = df[df[curve] > 100]
+                       if not high_res.empty:
+                           print(f"Curve {curve} exceeds 100 at {len(high_res)} depths")
+                           print(f"First 5 depths: {high_res.index[:5].tolist()}")
+                       else:
+                           print(f"No depths found where {curve} exceeds 100")
+               else:
+                   print("No resistivity curves found in the dataset")
+               ```
+
+            Other useful code patterns:
+            - To find the average value of a curve: `df['CURVE_NAME'].mean()`
+            - To find values in a depth range: `df.loc[min_depth:max_depth, 'CURVE_NAME']`
+            - To find correlations: `df[['CURVE1', 'CURVE2']].corr()`
+            - To identify zones where a curve exceeds a threshold: `df[df['CURVE_NAME'] > threshold]`
+
+            When asked to compare or analyze porosity or any other measurement, identify ALL relevant curves
+            for that measurement type from each well, not just one curve per well.
+
+            For neutron porosity specifically, search for and include ALL curves with the following characteristics:
+            - Curves with mnemonics containing: NPOR, NPHI, NPRL, NPRS, NPRD, CNL, TNPH, SPOR, SPHI, SNP, PHIN, TPHI, TNPL
+            - Curves with descriptions containing words like "neutron" and "porosity"
+
+            When creating visualizations, include ALL identified relevant curves in the plot with clear labels.
             """
 
             messages = [SystemMessage(content=system_message)]

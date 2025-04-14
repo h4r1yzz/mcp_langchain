@@ -1,9 +1,12 @@
 from mcp.server.fastmcp import FastMCP
 import os
 import sys
+import io
+import contextlib
 from typing import Dict, List, Any, Union, Optional, Tuple
 import lasio
 import numpy as np
+import pandas as pd
 import time
 import json
 import plotly.graph_objects as go
@@ -368,123 +371,6 @@ def las_file_analyzer(file_path: str) -> Dict[str, Any]:
         return {"error": f"Error analyzing LAS file: {str(e)}"}
 
 @mcp.tool()
-def get_specific_curve_value(file_path: str, curve_name: str, index: Optional[int] = None, depth_value: Optional[float] = None) -> Dict[str, Any]:
-    """
-    Get a specific value from a curve at a given index or depth.
-    
-    Args:
-        file_path: Path to the LAS file
-        curve_name: Name of the curve to query (e.g., 'CGXT', 'GRGC')
-        index: Index of the value to retrieve (e.g., 7 for the 7th value)
-        depth_value: Specific depth to query (alternative to index)
-        
-    Returns:
-        Dictionary containing the requested value and context
-    """
-    if not os.path.exists(file_path):
-        return {"error": f"File not found: {file_path}"}
-    
-    if curve_name is None:
-        return {"error": "Curve name must be specified"}
-    
-    if index is None and depth_value is None:
-        return {"error": "Either index or depth_value must be specified"}
-    
-    try:
-        # Read the LAS file
-        las = lasio.read(file_path)
-        
-        # Find the curve
-        curve = None
-        for c in las.curves:
-            if hasattr(c, "mnemonic") and c.mnemonic == curve_name:
-                curve = c
-                break
-        
-        if curve is None:
-            return {"error": f"Curve '{curve_name}' not found in the LAS file"}
-        
-        # Get depth curve (usually the first curve)
-        depth_curve = las.curves[0]
-        
-        # If searching by depth
-        if depth_value is not None:
-            # Find the closest depth value
-            closest_idx = None
-            min_diff = float('inf')
-            
-            for i, depth in enumerate(depth_curve.data):
-                diff = abs(depth - depth_value)
-                if diff < min_diff:
-                    min_diff = diff
-                    closest_idx = i
-            
-            if closest_idx is None:
-                return {"error": f"Could not find depth value close to {depth_value}"}
-            
-            # Get the value at the closest depth
-            value = curve.data[closest_idx]
-            depth = depth_curve.data[closest_idx]
-            
-            # Get context (values before and after)
-            context_values = []
-            context_depths = []
-            
-            # Get 2 values before and 2 values after if available
-            for i in range(max(0, closest_idx - 2), min(len(curve.data), closest_idx + 3)):
-                if i != closest_idx:  # Skip the main if already have it
-                    context_values.append(float(curve.data[i]))
-                    context_depths.append(float(depth_curve.data[i]))
-            
-            return {
-                "curve_name": curve_name,
-                "depth": float(depth),
-                "value": float(value),
-                "index": closest_idx,
-                "context": {
-                    "depths": context_depths,
-                    "values": context_values
-                },
-                "unit": curve.unit if hasattr(curve, "unit") else ""
-            }
-        
-        # If searching by index
-        elif index is not None:
-            if index < 0 or index >= len(curve.data):
-                return {"error": f"Index {index} is out of range (0-{len(curve.data)-1})"}
-            
-            value = curve.data[index]
-            depth = depth_curve.data[index] if index < len(depth_curve.data) else None
-            
-            # Get context (values before and after)
-            context_values = []
-            context_depths = []
-            context_indices = []
-            
-            # Get 2 values before and 2 values after if available
-            for i in range(max(0, index - 2), min(len(curve.data), index + 3)):
-                if i != index:  # Skip the main value as we already have it
-                    context_values.append(float(curve.data[i]))
-                    context_depths.append(float(depth_curve.data[i]) if i < len(depth_curve.data) else None)
-                    context_indices.append(i)
-            
-            return {
-                "curve_name": curve_name,
-                "depth": float(depth) if depth is not None else None,
-                "value": float(value),
-                "index": index,
-                "context": {
-                    "indices": context_indices,
-                    "depths": context_depths,
-                    "values": context_values
-                },
-                "unit": curve.unit if hasattr(curve, "unit") else ""
-            }
-        
-    except Exception as e:
-        return {"error": f"Error retrieving curve value: {str(e)}"}
-
-@mcp.tool()
 def visualize_well_log(
     file_path: str,
     visualization_type: str,  # "multi_track", "crossplot", "heatmap"
@@ -644,9 +530,6 @@ def visualize_well_log(
         y_data = df[y_curve].values
         marker_dict = dict(size=7, opacity=0.7)
         
-        
-        # Create scatter plot
-
         # Create scatter plot
         if color_curve:
             if color_curve not in available_curves:
@@ -745,6 +628,88 @@ def visualize_well_log(
         "curves": curve_names,
         "metadata": metadata
     }
+
+@mcp.tool()
+def execute_las_code(file_path: str, code: str, max_output_size: int = 10000) -> Dict[str, Any]:
+    """
+    Execute Python code on a LAS file dataframe and return the results.
+
+    Args:
+        file_path: Path to the LAS file
+        code: Python code to execute on the dataframe. The dataframe is available as 'df'
+        max_output_size: Maximum size of the output to return (default: 10000 characters)
+
+    Returns:
+        Dictionary containing the execution results and any output
+    """
+    if not os.path.exists(file_path):
+        return {"error": f"File not found: {file_path}"}
+
+    # To capture the output
+    stdout_capture = io.StringIO()
+
+    result = {
+        "output": "",
+        "result": None,
+        "error": None,
+        "execution_time": 0
+    }
+
+    try:
+        # Read the LAS file
+        start_time = time.time()
+        las = lasio.read(file_path)
+        df = las.df()
+
+        # Execute the code with captured stdout
+        with contextlib.redirect_stdout(stdout_capture):
+            # Create a local namespace with the dataframe
+            local_namespace = {
+                'df': df,
+                'np': np,
+                'pd': pd,
+                'las': las
+            }
+
+            # Execute the code
+            exec(code, {}, local_namespace)
+
+            # Check for a return value (last expression)
+            if '_' in local_namespace:
+                result["result"] = local_namespace['_']
+
+        # Get the captured stdout
+        stdout_output = stdout_capture.getvalue()
+        if stdout_output:
+            result["output"] = stdout_output[:max_output_size]
+            if len(stdout_output) > max_output_size:
+                result["output"] += "\n... (output truncated)"
+
+        result["execution_time"] = time.time() - start_time
+
+        # If the result is a DataFrame, convert to a string representation
+        if isinstance(result["result"], pd.DataFrame):
+            if len(result["result"]) > 100:
+                # If DataFrame is large, show only first and last rows
+                df_head = result["result"].head(50).to_string()
+                df_tail = result["result"].tail(50).to_string()
+                result["result"] = f"DataFrame with {len(result['result'])} rows and {len(result['result'].columns)} columns:\n\nFirst 50 rows:\n{df_head}\n\nLast 50 rows:\n{df_tail}"
+            else:
+                result["result"] = result["result"].to_string()
+        elif isinstance(result["result"], np.ndarray):
+            if result["result"].size > 100:
+                # If array is large, show only first and last elements
+                result["result"] = f"Array with {result['result'].size} elements:\n\nFirst 50 elements:\n{result['result'][:50]}\n\nLast 50 elements:\n{result['result'][-50:]}"
+            else:
+                result["result"] = str(result["result"])
+        elif result["result"] is not None:
+            # Convert other types to string
+            result["result"] = str(result["result"])[:max_output_size]
+
+    except Exception as e:
+        result["error"] = f"Error executing code: {str(e)}"
+
+    return result
 
 if __name__ == "__main__":
     mcp.run()
