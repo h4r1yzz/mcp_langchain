@@ -86,17 +86,49 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Update tool messages
         if (data.tool_messages) {
-            elements.toolMessages.innerHTML = `
-                <h4>Tool Messages</h4>
-                <pre>${JSON.stringify(data.tool_messages, null, 2)}</pre>
-            `;
+            // Format each tool message individually for better readability
+            const formattedMessages = data.tool_messages.map(msg => {
+                let content = msg.content;
+                try {
+                    if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
+                        // Parse and re-stringify with indentation
+                        const parsedContent = JSON.parse(content);
+                        content = JSON.stringify(parsedContent, null, 2);
+                    }
+                } catch (e) {
+                    // If parsing fails, keep the original content
+                }
+
+                // Create a formatted message object
+                return {
+                    name: msg.name,
+                    content: content,
+                    id: msg.id
+                };
+            });
+
+            // Create a more structured display for tool messages
+            let toolMessagesHTML = `<h4>Tool Messages</h4>`;
+
+            // Create a separate section for each tool message
+            formattedMessages.forEach((msg, index) => {
+                toolMessagesHTML += `
+                <div class="tool-message">
+                    <div class="tool-name">Tool: ${msg.name}</div>
+                    <pre class="tool-content">${msg.content}</pre>
+                </div>
+                ${index < formattedMessages.length - 1 ? '<hr>' : ''}
+                `;
+            });
+
+            elements.toolMessages.innerHTML = toolMessagesHTML;
         }
     }
 
     function resetDebugInfo() {
         elements.tokenUsage.innerHTML = '<h4>Token Usage</h4><p>No data yet</p>';
         elements.thinkingProcess.innerHTML = '<h4>Thinking Process</h4><pre>No data yet</pre>';
-        elements.toolMessages.innerHTML = '<h4>Tool Messages</h4><pre>No data yet</pre>';
+        elements.toolMessages.innerHTML = '<h4>Tool Messages</h4><div class="tool-message"><div class="tool-name">Status</div><pre class="tool-content">No tool messages yet</pre></div>';
     }
 
     function displayResponse(responseDiv, data) {
@@ -107,8 +139,6 @@ document.addEventListener('DOMContentLoaded', function() {
         visualizationsContainer.className = 'visualizations-wrapper';
 
         let hasVisualizations = false;
-
-        // No legacy static visualizations
 
         // Display interactive Plotly visualizations
         if (data.plotly_visualizations && data.plotly_visualizations.length > 0) {
@@ -147,12 +177,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 vizContainer.appendChild(plotContainer);
 
-
-
                 // Add the container to the visualizations wrapper
                 visualizationsContainer.appendChild(vizContainer);
-
-
 
                 // Render the Plotly visualization after a short delay to ensure DOM is ready
                 setTimeout(() => {
