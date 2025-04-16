@@ -3,60 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LAS File Chat Assistant</title>
+    <title>Well Log Analysis Assistant</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <!-- Plotly.js for interactive visualizations (using a specific version) -->
     <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <div class="sidebar">
-        <h2>File Upload</h2>
-        <div class="file-upload">
+    <header class="app-header">
+        <div class="logo-container">
+            <img src="{{ url_for('static', filename='img/grad_horizontal.png') }}" alt="Rosary Labs Logo" class="logo">
+        </div>
+        <div class="header-actions">
+            <button class="settings-button" aria-label="Settings" id="toggle-debug">
+                <i class="fas fa-cog"></i>
+            </button>
+        </div>
+    </header>
+
+    <aside class="document-panel">
+        <div class="document-panel__header">
+            <h2 class="document-panel__title">Well Log Files</h2>
+            <div class="document-panel__actions">
+                <button class="document-panel__upload-btn" id="upload-btn" aria-label="Upload files">
+                    <i class="fas fa-upload"></i> Upload
+                </button>
+            </div>
+        </div>
+
+        <div class="document-panel__upload-area" id="upload-area">
             <form id="upload-form" enctype="multipart/form-data">
-                <div class="file-input-container">
-                    <input type="file" id="file-input" accept=".las">
-                </div>
-                <div class="upload-button-container">
-                    <button type="submit">Upload</button>
-                </div>
+                <input type="file" id="file-input" class="document-panel__file-input" accept=".las">
+                <input type="submit" id="submit-upload" style="display: none;">
+                <label for="file-input" class="document-panel__upload-label">
+                    <i class="fas fa-file-upload"></i>
+                    <span>Drop LAS files here or click to browse</span>
+                </label>
             </form>
         </div>
 
-        <div class="uploaded-files">
-            <h3>Uploaded Files</h3>
-            <div id="files-list">
-                {% for file_name, file_info in uploaded_files.items() %}
-                <div class="file-item">
-                    <span class="file-icon">📄</span>
-                    <span>{{ file_name }}</span>
+        <ul class="document-panel__file-list" id="files-list">
+            {% for file_name, file_info in uploaded_files.items() %}
+            <li class="document-panel__file-item">
+                <i class="fas fa-file-alt document-panel__file-icon"></i>
+                <span class="document-panel__file-name">{{ file_name }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <div class="document-panel__footer">
+            <button class="document-panel__clear-btn" id="clear-chat">
+                <i class="fas fa-trash-alt"></i> Clear All Files
+            </button>
+        </div>
+    </aside>
+
+    <!-- Metadata panel removed -->
+
+    <main class="main-content">
+        <div class="chat-container">
+            <div class="chat-container__messages" id="chat-container">
+                <!-- Messages will appear here -->
+                {% if not messages %}
+                <div class="chat-container__welcome">
+                    <h2>Welcome to Well Log Analysis Assistant</h2>
+                    <p>Upload LAS files and ask questions about your well log data.</p>
+                    <div class="chat-container__suggestions">
+                        <button class="suggestion-chip">What curves are available?</button>
+                        <button class="suggestion-chip">Show me depth ranges</button>
+                        <button class="suggestion-chip">Compare resistivity curves</button>
+                    </div>
+                </div>
+                {% else %}
+                {% for message in messages %}
+                <div class="message {{ message.role }}">
+                    {{ message.content | safe }}
                 </div>
                 {% endfor %}
+                {% endif %}
+            </div>
+
+            <div class="chat-container__input">
+                <textarea
+                    id="query-input"
+                    class="chat-container__input-field"
+                    placeholder="Ask about your well log data..."
+                    rows="1"
+                    aria-label="Your question"
+                ></textarea>
+                <button class="chat-container__send-btn" id="send-button" aria-label="Send message">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
             </div>
         </div>
 
-        <div class="clear-chat-container">
-            <button id="clear-chat">Clear Chat</button>
-        </div>
-    </div>
-
-    <div class="main-content">
-        <h1>Chat Assistant</h1>
-
-        <div class="chat-container" id="chat-container">
-            {% for message in messages %}
-            <div class="message {{ message.role }}">
-                {{ message.content | safe }}
-            </div>
-            {% endfor %}
-        </div>
-
-
-        <div class="input-container">
-            <input type="text" id="query-input" placeholder="Ask me about the well log data...">
-            <button id="send-button">Send</button>
-        </div>
-
-        <div class="debug-info">
+        <div class="debug-info" id="debug-panel">
             <button type="button" class="collapsible">Debug Information</button>
             <div class="content">
                 <div id="token-usage">
@@ -75,7 +115,7 @@
                 </div>
             </div>
         </div>
-    </div>
+    </main>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>

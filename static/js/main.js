@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
+    // DOM elements cache
     const elements = {
         chatContainer: document.getElementById('chat-container'),
         queryInput: document.getElementById('query-input'),
@@ -9,7 +10,12 @@ document.addEventListener('DOMContentLoaded', function() {
         clearChatButton: document.getElementById('clear-chat'),
         tokenUsage: document.getElementById('token-usage'),
         thinkingProcess: document.getElementById('thinking-process'),
-        toolMessages: document.getElementById('tool-messages')
+        toolMessages: document.getElementById('tool-messages'),
+        uploadBtn: document.getElementById('upload-btn'),
+        uploadArea: document.getElementById('upload-area'),
+        toggleDebug: document.getElementById('toggle-debug'),
+        debugPanel: document.getElementById('debug-panel'),
+        suggestionChips: document.querySelectorAll('.suggestion-chip')
     };
 
     let loadingMessageDiv = null;
@@ -28,6 +34,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         messageDiv.innerHTML = content;
         elements.chatContainer.appendChild(messageDiv);
+
+        messageDiv.style.height = 'auto';
+        messageDiv.style.minHeight = 'fit-content';
+
         scrollToBottom();
         return messageDiv;
     }
@@ -35,6 +45,10 @@ document.addEventListener('DOMContentLoaded', function() {
     function showLoadingMessage(text) {
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message assistant';
+
+        messageDiv.style.maxHeight = 'none';
+        messageDiv.style.overflowY = 'visible';
+        messageDiv.style.height = 'auto';
 
         const loadingDiv = document.createElement('div');
         loadingDiv.textContent = text;
@@ -51,21 +65,8 @@ document.addEventListener('DOMContentLoaded', function() {
         return messageDiv;
     }
 
-    function showErrorMessage(errorText) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'message';
-
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.textContent = errorText || 'An error occurred';
-
-        messageDiv.appendChild(errorDiv);
-        elements.chatContainer.appendChild(messageDiv);
-        scrollToBottom();
-    }
-
     function updateDebugInfo(data) {
-        // Update token usage
+        // token usage
         if (data.token_usage) {
             const usage = data.token_usage;
             const cost = data.token_cost;
@@ -76,7 +77,7 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         }
 
-        // Update thinking process
+        // thinking process
         if (data.thinking_process) {
             elements.thinkingProcess.innerHTML = `
                 <h4>Thinking Process</h4>
@@ -84,7 +85,7 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         }
 
-        // Update tool messages
+        // tool messages
         if (data.tool_messages) {
             // Format each tool message individually for better readability
             const formattedMessages = data.tool_messages.map(msg => {
@@ -99,7 +100,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     // If parsing fails, keep the original content
                 }
 
-                // Create a formatted message object
                 return {
                     name: msg.name,
                     content: content,
@@ -148,6 +148,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Create a container for this visualization
                 const vizContainer = document.createElement('div');
                 vizContainer.className = 'visualization-container';
+                vizContainer.style.width = '100%';
+                vizContainer.style.maxWidth = '100%';
+                vizContainer.style.height = 'auto'; 
 
                 // Add a title for the visualization
                 const vizTitle = document.createElement('div');
@@ -159,69 +162,91 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Create a container for the Plotly visualization
                 const plotContainer = document.createElement('div');
-
-                // Clean the ID to ensure it's valid for DOM
-                // Remove any special characters that might cause issues
                 const cleanId = viz.plot_id.replace(/[^a-zA-Z0-9_]/g, '_');
-
-                // Ensure the ID is exactly as expected by Plotly
                 plotContainer.id = cleanId;
                 plotContainer.className = 'plotly-visualization';
-
-                // Store both the original and cleaned IDs for debugging
-                plotContainer.setAttribute('data-original-plot-id', viz.plot_id);
-                plotContainer.setAttribute('data-clean-plot-id', cleanId);
-
-                // Store the cleaned ID back in the viz object for later use
-                viz.clean_plot_id = cleanId;
-
                 vizContainer.appendChild(plotContainer);
-
-                // Add the container to the visualizations wrapper
                 visualizationsContainer.appendChild(vizContainer);
 
-                // Render the Plotly visualization after a short delay to ensure DOM is ready
+                // Render the Plotly visualization
                 setTimeout(() => {
                     try {
-                        // Use the cleaned ID to find the element
-                        const plotId = viz.clean_plot_id || viz.plot_id.replace(/[^a-zA-Z0-9_]/g, '_');
+                        const plotElement = document.getElementById(cleanId);
+                        if (plotElement && typeof Plotly !== 'undefined' &&
+                            Array.isArray(viz.plot_data) && viz.plot_data.length > 0) {
 
-                        // Get the plot element
-                        const plotElement = document.getElementById(plotId);
-                        if (!plotElement || typeof Plotly === 'undefined') {
-                            return;
+                            // Set layout
+                            const layout = viz.plot_layout || {};
+
+                            // Calculate container dimensions
+                            const containerWidth = plotElement.parentElement.clientWidth - 40; // Subtract padding
+
+                            // Set dimensions
+                            layout.width = layout.width || Math.min(containerWidth, 0.95 * window.innerWidth);
+                            layout.height = layout.height || 450; // Default height
+                            layout.autosize = true; // Allow autosize for height
+
+                            // Ensure margins aren't too large but provide enough space
+                            layout.margin = layout.margin || {};
+                            layout.margin.l = layout.margin.l || 60;
+                            layout.margin.r = layout.margin.r || 60;
+                            layout.margin.t = layout.margin.t || 60;
+                            layout.margin.b = layout.margin.b || 60;
+                            layout.margin.pad = layout.margin.pad || 10;
+
+                            // Center the title
+                            if (layout.title) {
+                                layout.title = {
+                                    text: layout.title.text || layout.title,
+                                    x: 0.5,  // Center the title
+                                    xanchor: 'center'
+                                };
+                            }
+
+                            // Render the plot
+                            Plotly.newPlot(cleanId, viz.plot_data, layout, {
+                                responsive: true,
+                                scrollZoom: true,  
+                                displayModeBar: true, 
+                                displaylogo: false, 
+                                modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'], 
+                                showAxisDragHandles: true, 
+                                fillFrame: true
+                            })
+                            .then(function() {
+                                // After plot is created, adjust the container height to fit the plot
+                                const plotHeight = plotElement.getBoundingClientRect().height;
+                                if (plotHeight > 0) {
+                                    // Add some padding to the container height
+                                    plotElement.parentElement.style.height = (plotHeight + 40) + 'px';
+                                }
+                            });
+
+                            // Add window resize handler to ensure the plot stays within its container
+                            const resizeHandler = function() {
+                                try {
+                                    const newWidth = plotElement.parentElement.clientWidth - 40;
+                                    Plotly.relayout(cleanId, {
+                                        width: newWidth
+                                    })
+                                    .then(function() {
+                                        // After resize, adjust the container height again
+                                        const plotHeight = plotElement.getBoundingClientRect().height;
+                                        if (plotHeight > 0) {
+                                            plotElement.parentElement.style.height = (plotHeight + 40) + 'px';
+                                        }
+                                    });
+                                } catch (e) {
+                                    // Silent error handling
+                                }
+                            };
+
+                            window.addEventListener('resize', resizeHandler);
                         }
-
-                        // Ensure the container has appropriate dimensions for plotting
-                        plotElement.style.minHeight = '350px';
-                        plotElement.style.height = '400px';
-                        plotElement.style.maxWidth = '100%';
-                        plotElement.style.border = '1px solid #ddd';
-                        plotElement.style.backgroundColor = '#f9f9f9';
-
-                        // Add a border to make the plot container visible
-                        plotElement.style.border = '1px solid #ddd';
-
-                        // Skip if plot data is invalid
-                        if (!Array.isArray(viz.plot_data) || viz.plot_data.length === 0) {
-                            return;
-                        }
-
-                        // Ensure layout has proper size settings
-                        const layout = viz.plot_layout || {};
-                        layout.height = layout.height || 380;
-                        layout.width = layout.width || Math.min(800, 0.75 * window.innerWidth); // Cap at 800px or 75% of window width
-                        layout.autosize = true;
-                        layout.margin = layout.margin || {l: 50, r: 50, t: 50, b: 50}; // Reduce margins
-
-                        // Render the plot with updated layout
-                        Plotly.newPlot(plotId, viz.plot_data, layout, {responsive: true, useResizeHandler: true})
-                            .catch(() => {});
-                            // Silent error handling - visualization will simply not appear if there's an error
                     } catch (error) {
                         // Silent error handling
                     }
-                }, 200); // Increased timeout to ensure DOM is ready
+                }, 100);
             });
         }
 
@@ -236,6 +261,11 @@ document.addEventListener('DOMContentLoaded', function() {
         textDiv.className = 'response-text';
         textDiv.innerHTML = formattedResponse;
         responseDiv.appendChild(textDiv);
+
+        // Ensure the response div expands to fit its content
+        responseDiv.style.height = 'auto';
+        responseDiv.style.minHeight = 'fit-content';
+        responseDiv.style.overflowY = 'visible';
 
         scrollToBottom();
     }
@@ -255,34 +285,27 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.status === 'success') {
                 uploadMessageDiv.innerHTML = `File <strong>${data.file_name}</strong> uploaded successfully.`;
 
-                const fileItem = document.createElement('div');
-                fileItem.className = 'file-item';
+                const fileItem = document.createElement('li');
+                fileItem.className = 'document-panel__file-item';
 
-                const fileIcon = document.createElement('span');
-                fileIcon.className = 'file-icon';
-                fileIcon.textContent = '📄';
+                const fileIcon = document.createElement('i');
+                fileIcon.className = 'fas fa-file-alt document-panel__file-icon';
 
                 const fileName = document.createElement('span');
+                fileName.className = 'document-panel__file-name';
                 fileName.textContent = data.file_name;
 
                 fileItem.appendChild(fileIcon);
                 fileItem.appendChild(fileName);
                 elements.filesList.appendChild(fileItem);
                 elements.fileInput.value = '';
+
             } else {
-                uploadMessageDiv.innerHTML = '';
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error-message';
-                errorDiv.textContent = `Error: ${data.message}`;
-                uploadMessageDiv.appendChild(errorDiv);
+                uploadMessageDiv.innerHTML = `Error: ${data.message || 'Unknown error'}`;
             }
         })
         .catch(() => {
-            uploadMessageDiv.innerHTML = '';
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-message';
-            errorDiv.textContent = 'An error occurred while processing your request';
-            uploadMessageDiv.appendChild(errorDiv);
+            uploadMessageDiv.innerHTML = 'Upload failed. Please try again.';
         });
     }
 
@@ -343,6 +366,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Handle file selection and automatically submit the form
+    elements.fileInput.addEventListener('change', function() {
+        if (this.files.length > 0) {
+            // Automatically submit the form when a file is selected
+            elements.uploadForm.dispatchEvent(new Event('submit'));
+        }
+    });
+
+    // Handle form submission
     elements.uploadForm.addEventListener('submit', function(e) {
         e.preventDefault();
         const file = elements.fileInput.files[0];
@@ -363,6 +395,57 @@ document.addEventListener('DOMContentLoaded', function() {
 
     elements.clearChatButton.addEventListener('click', clearChat);
 
+    // Handle upload button click
+    if (elements.uploadBtn) {
+        elements.uploadBtn.addEventListener('click', function() {
+            elements.fileInput.click();
+        });
+    }
+
+    // Handle drag and drop for file upload
+    if (elements.uploadArea) {
+        elements.uploadArea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.classList.add('document-panel__upload-area--active');
+        });
+
+        elements.uploadArea.addEventListener('dragleave', function() {
+            this.classList.remove('document-panel__upload-area--active');
+        });
+
+        elements.uploadArea.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.classList.remove('document-panel__upload-area--active');
+
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                elements.fileInput.files = files;
+                const event = new Event('change');
+                elements.fileInput.dispatchEvent(event);
+                elements.uploadForm.dispatchEvent(new Event('submit'));
+            }
+        });
+    }
+
+    // Handle suggestion chips
+    if (elements.suggestionChips) {
+        elements.suggestionChips.forEach(chip => {
+            chip.addEventListener('click', function() {
+                elements.queryInput.value = this.textContent;
+                sendQuery();
+            });
+        });
+    }
+
+    // Auto-resize textarea
+    function autoResizeTextarea() {
+        elements.queryInput.style.height = 'auto';
+        elements.queryInput.style.height = (elements.queryInput.scrollHeight) + 'px';
+    }
+
+    elements.queryInput.addEventListener('input', autoResizeTextarea);
+
+    // Collapsible sections
     const collapsibles = document.getElementsByClassName('collapsible');
     for (const collapsible of collapsibles) {
         collapsible.addEventListener('click', function() {
@@ -373,4 +456,33 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     scrollToBottom();
+
+    // Hide debug panel by default
+    if (elements.debugPanel) {
+        elements.debugPanel.style.display = 'none';
+    }
+
+    // Add toggle debug panel functionality
+    if (elements.toggleDebug && elements.debugPanel) {
+        elements.toggleDebug.addEventListener('click', function() {
+            // Toggle debug panel visibility
+            const isVisible = elements.debugPanel.style.display === 'block';
+            elements.debugPanel.style.display = isVisible ? 'none' : 'block';
+
+            // Toggle active class on the settings button
+            if (isVisible) {
+                elements.toggleDebug.classList.remove('settings-button--active');
+            } else {
+                elements.toggleDebug.classList.add('settings-button--active');
+
+                // Auto-expand the first collapsible section when showing the panel
+                const collapsible = elements.debugPanel.querySelector('.collapsible');
+                const content = collapsible?.nextElementSibling;
+                if (collapsible && content && content.style.display !== 'block') {
+                    collapsible.classList.add('active');
+                    content.style.display = 'block';
+                }
+            }
+        });
+    }
 });
