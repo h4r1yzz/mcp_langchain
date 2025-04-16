@@ -65,11 +65,12 @@ class StateManager:
             return self.session_state.uploaded_files
         return self.session_state["uploaded_files"]
 
-    def add_uploaded_file(self, name, path):
+    def add_uploaded_file(self, name, path, metadata=None):
         """Add an uploaded file."""
         file_info = {
             "name": name,
-            "path": path
+            "path": path,
+            "metadata": metadata or {}
         }
 
         if self.is_streamlit:
