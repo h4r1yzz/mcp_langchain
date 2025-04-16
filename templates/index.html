@@ -43,7 +43,9 @@
 
         <ul class="document-panel__file-list" id="files-list">
             {% for file_name, file_info in uploaded_files.items() %}
-            <li class="document-panel__file-item">
+            <li class="document-panel__file-item{% if loop.first %} document-panel__file-item--active{% endif %}"
+                data-filename="{{ file_name }}"
+                data-file-info='{{ file_info.get("metadata", {}) | tojson }}'>
                 <i class="fas fa-file-alt document-panel__file-icon"></i>
                 <span class="document-panel__file-name">{{ file_name }}</span>
             </li>

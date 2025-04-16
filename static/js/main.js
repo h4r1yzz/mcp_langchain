@@ -19,7 +19,8 @@ document.addEventListener('DOMContentLoaded', function() {
         curveList: document.getElementById('curve-list'),
         toggleDebug: document.getElementById('toggle-debug'),
         debugPanel: document.getElementById('debug-panel'),
-        suggestionChips: document.querySelectorAll('.suggestion-chip')
+        suggestionChips: document.querySelectorAll('.suggestion-chip'),
+        fileItems: document.querySelectorAll('.document-panel__file-item')
     };
 
     let loadingMessageDiv = null;
@@ -154,7 +155,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 vizContainer.className = 'visualization-container';
                 vizContainer.style.width = '100%';
                 vizContainer.style.maxWidth = '100%';
-                vizContainer.style.height = 'auto'; 
+                vizContainer.style.height = 'auto';
 
                 // Add a title for the visualization
                 const vizTitle = document.createElement('div');
@@ -274,6 +275,20 @@ document.addEventListener('DOMContentLoaded', function() {
         scrollToBottom();
     }
 
+    function handleFileItemClick() {
+        document.querySelectorAll('.document-panel__file-item').forEach(item => {
+            item.classList.remove('document-panel__file-item--active');
+        });
+
+        this.classList.add('document-panel__file-item--active');
+
+        // Get file info from data attribute
+        if (this.dataset.fileInfo) {
+            const fileInfo = JSON.parse(this.dataset.fileInfo);
+            updateMetadataPanel(fileInfo);
+        }
+    }
+
     function uploadFile(file) {
         const formData = new FormData();
         formData.append('file', file);
@@ -291,6 +306,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 const fileItem = document.createElement('li');
                 fileItem.className = 'document-panel__file-item';
+                fileItem.dataset.filename = data.file_name;
+
+                // Store file info in data attribute to avoid redundant API calls
+                if (data.file_info) {
+                    fileItem.dataset.fileInfo = JSON.stringify(data.file_info);
+                }
+
+                // Make file item clickable using the shared handler function
+                fileItem.addEventListener('click', handleFileItemClick);
 
                 const fileIcon = document.createElement('i');
                 fileIcon.className = 'fas fa-file-alt document-panel__file-icon';
@@ -307,6 +331,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Update metadata panel with file info
                 if (data.file_info && elements.metadataDetails) {
                     updateMetadataPanel(data.file_info);
+
+                    // Remove active class from all other file items
+                    document.querySelectorAll('.document-panel__file-item').forEach(item => {
+                        if (item !== fileItem) {
+                            item.classList.remove('document-panel__file-item--active');
+                        }
+                    });
+
+                    // Mark this file as active
+                    fileItem.classList.add('document-panel__file-item--active');
                 }
             } else {
                 uploadMessageDiv.innerHTML = `Error: ${data.message || 'Unknown error'}`;
@@ -576,6 +610,21 @@ document.addEventListener('DOMContentLoaded', function() {
         const curvesSection = document.getElementById('metadata-curves');
         if (curvesSection) {
             curvesSection.style.display = 'none';
+        }
+    }
+
+    // Add click handlers to existing file items
+    if (elements.fileItems && elements.fileItems.length > 0) {
+        // Add click handlers to all file items using the shared handler function
+        elements.fileItems.forEach(fileItem => {
+            const fileName = fileItem.querySelector('.document-panel__file-name').textContent;
+            fileItem.dataset.filename = fileName;
+            fileItem.addEventListener('click', handleFileItemClick);
+        });
+
+        // Select the first file by default
+        if (elements.fileItems.length > 0) {
+            elements.fileItems[0].click();
         }
     }
 });

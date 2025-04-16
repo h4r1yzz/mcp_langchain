@@ -1,7 +1,7 @@
 /* Base variables */
 :root {
     /* Color palette */
-    --color-primary: #f97316;         /* Orange for primary actions */
+    --color-primary: #f69610;         /* Orange for primary actions */
     --color-primary-light: #ffedd5;   /* Light orange for backgrounds */
     --color-secondary: #475569;       /* Slate for secondary elements */
     --color-text: #1e293b;            /* Dark slate for text */
@@ -152,7 +152,7 @@ body {
 }
 
 .document-panel__upload-btn {
-    background-color: var(--color-primary);
+    background-color: #f69610;
     color: white;
     border: none;
     border-radius: var(--border-radius-md);
@@ -444,7 +444,7 @@ body {
 }
 
 .chat-container__send-btn {
-    background-color: var(--color-primary);
+    background-color: #f69610;
     color: white;
     border: none;
     border-radius: 50%;

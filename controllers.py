@@ -50,12 +50,12 @@ class LASChatController:
         # Change getbuffer to read for compatible with Flask
             f.write(uploaded_file.read())
 
-        # Update state
-        self.state.set_file_path(file_path)
-        self.state.add_uploaded_file(uploaded_file.filename, file_path)
-
         # Extract metadata from the LAS file
         file_info = self._extract_las_metadata(file_path)
+
+        # Update state
+        self.state.set_file_path(file_path)
+        self.state.add_uploaded_file(uploaded_file.filename, file_path, file_info)
 
         return {
             "status": "success",
