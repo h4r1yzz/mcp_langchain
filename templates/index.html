@@ -57,7 +57,31 @@
         </div>
     </aside>
 
-    <!-- Metadata panel removed -->
+    <section class="metadata-panel">
+        <div class="metadata-panel__header">
+            <h3 class="metadata-panel__title">Well Information</h3>
+            <button class="metadata-panel__toggle" id="toggle-metadata" aria-label="Toggle metadata panel">
+                <i class="fas fa-chevron-up"></i>
+            </button>
+        </div>
+
+        <div class="metadata-panel__content" id="metadata-content">
+            <div class="metadata-panel__empty-state" id="metadata-empty-state">
+                <p>Select a well log file to view details</p>
+            </div>
+
+            <div class="metadata-panel__details" id="metadata-details">
+                <!-- This will be populated dynamically -->
+            </div>
+
+            <div class="metadata-panel__curves" id="metadata-curves">
+                <h4 class="metadata-panel__subtitle">Available Curves</h4>
+                <ul class="metadata-panel__curve-list" id="curve-list">
+                    <!-- Curves will be listed here dynamically -->
+                </ul>
+            </div>
+        </div>
+    </section>
 
     <main class="main-content">
         <div class="chat-container">

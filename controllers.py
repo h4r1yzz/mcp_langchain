@@ -42,6 +42,8 @@ class LASChatController:
         if not uploaded_file:
             return {"status": "error", "message": "No file provided"}
 
+        os.makedirs(temp_dir, exist_ok=True)
+
         # Save the uploaded file to the temp directory
         file_path = os.path.join(temp_dir, uploaded_file.filename)
         with open(file_path, "wb") as f:
@@ -52,10 +54,14 @@ class LASChatController:
         self.state.set_file_path(file_path)
         self.state.add_uploaded_file(uploaded_file.filename, file_path)
 
+        # Extract metadata from the LAS file
+        file_info = self._extract_las_metadata(file_path)
+
         return {
             "status": "success",
             "file_path": file_path,
             "file_name": uploaded_file.filename,
+            "file_info": file_info
         }
 
     def cleanup_session_files(self):
@@ -81,3 +87,39 @@ class LASChatController:
                         os.remove(file_path)
                     except Exception:
                         pass
+
+    def _extract_las_metadata(self, file_path):
+        """Extract metadata from a LAS file for display in the UI."""
+        try:
+            import lasio
+            las = lasio.read(file_path)
+
+            metadata = {}
+
+            # Well name
+            if 'WELL' in las.well:
+                metadata['well'] = las.well['WELL'].value
+
+            # Field name
+            if 'FLD' in las.well:
+                metadata['field'] = las.well['FLD'].value
+            elif 'FIELD' in las.well:
+                metadata['field'] = las.well['FIELD'].value
+
+            # Company
+            if 'COMP' in las.well:
+                metadata['company'] = las.well['COMP'].value
+            elif 'COMPANY' in las.well:
+                metadata['company'] = las.well['COMPANY'].value
+
+            # Depth range
+            if hasattr(las, 'start') and hasattr(las, 'stop'):
+                metadata['depth_range'] = f"{las.start:.2f} - {las.stop:.2f} {las.well['STRT'].unit}"
+
+            # Get curve names
+            metadata['curves'] = [curve.mnemonic for curve in las.curves]
+
+            return metadata
+        except Exception as e:
+            print(f"Error extracting LAS metadata: {str(e)}")
+            return {}

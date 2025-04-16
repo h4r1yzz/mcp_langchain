@@ -13,6 +13,10 @@ document.addEventListener('DOMContentLoaded', function() {
         toolMessages: document.getElementById('tool-messages'),
         uploadBtn: document.getElementById('upload-btn'),
         uploadArea: document.getElementById('upload-area'),
+        toggleMetadata: document.getElementById('toggle-metadata'),
+        metadataContent: document.getElementById('metadata-content'),
+        metadataDetails: document.getElementById('metadata-details'),
+        curveList: document.getElementById('curve-list'),
         toggleDebug: document.getElementById('toggle-debug'),
         debugPanel: document.getElementById('debug-panel'),
         suggestionChips: document.querySelectorAll('.suggestion-chip')
@@ -300,6 +304,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 elements.filesList.appendChild(fileItem);
                 elements.fileInput.value = '';
 
+                // Update metadata panel with file info
+                if (data.file_info && elements.metadataDetails) {
+                    updateMetadataPanel(data.file_info);
+                }
             } else {
                 uploadMessageDiv.innerHTML = `Error: ${data.message || 'Unknown error'}`;
             }
@@ -307,6 +315,70 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(() => {
             uploadMessageDiv.innerHTML = 'Upload failed. Please try again.';
         });
+    }
+
+    function updateMetadataPanel(fileInfo) {
+        // Hide empty state
+        const emptyState = document.getElementById('metadata-empty-state');
+        if (emptyState) {
+            emptyState.style.display = 'none';
+        }
+
+        // Update metadata details
+        const metadataDetails = document.getElementById('metadata-details');
+        if (metadataDetails) {
+            let detailsHTML = '<h4 class="metadata-panel__subtitle">File Details</h4>';
+
+            if (fileInfo.well) {
+                detailsHTML += `<p><strong>Well:</strong> ${fileInfo.well}</p>`;
+            }
+
+            if (fileInfo.field) {
+                detailsHTML += `<p><strong>Field:</strong> ${fileInfo.field}</p>`;
+            }
+
+            if (fileInfo.company) {
+                detailsHTML += `<p><strong>Company:</strong> ${fileInfo.company}</p>`;
+            }
+
+            if (fileInfo.depth_range) {
+                detailsHTML += `<p><strong>Depth Range:</strong> ${fileInfo.depth_range}</p>`;
+            }
+
+            metadataDetails.innerHTML = detailsHTML;
+            metadataDetails.style.display = 'block';
+        }
+
+        // Update curve list
+        const curvesSection = document.getElementById('metadata-curves');
+        const curveList = document.getElementById('curve-list');
+
+        if (curvesSection && curveList && fileInfo.curves && fileInfo.curves.length > 0) {
+            // Show the curves section
+            curvesSection.style.display = 'block';
+            curveList.innerHTML = '';
+
+            fileInfo.curves.forEach(curve => {
+                const curveItem = document.createElement('li');
+                curveItem.className = 'metadata-panel__curve-item';
+                curveItem.textContent = curve;
+                curveItem.addEventListener('click', () => {
+                    elements.queryInput.value = `Tell me about the ${curve} curve`;
+                    sendQuery();
+                });
+
+                curveList.appendChild(curveItem);
+            });
+        } else if (curvesSection) {
+            // Hide the curves section if no curves are available
+            curvesSection.style.display = 'none';
+        }
+
+        // Show metadata panel
+        const metadataContent = document.getElementById('metadata-content');
+        if (metadataContent) {
+            metadataContent.style.display = 'block';
+        }
     }
 
     function sendQuery() {
@@ -394,6 +466,19 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     elements.clearChatButton.addEventListener('click', clearChat);
+
+    // Toggle metadata panel
+    if (elements.toggleMetadata) {
+        elements.toggleMetadata.addEventListener('click', function() {
+            const isExpanded = elements.metadataContent.style.display !== 'none';
+            elements.metadataContent.style.display = isExpanded ? 'none' : 'block';
+            elements.toggleMetadata.innerHTML = isExpanded ?
+                '<i class="fas fa-chevron-down"></i>' :
+                '<i class="fas fa-chevron-up"></i>';
+        });
+    }
+
+    // Toggle debug panel - removed duplicate event listener as it's handled in initialization
 
     // Handle upload button click
     if (elements.uploadBtn) {
@@ -484,5 +569,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
+    }
+
+    // Initialize metadata panel
+    if (elements.metadataContent && elements.filesList && elements.filesList.children.length === 0) {
+        const curvesSection = document.getElementById('metadata-curves');
+        if (curvesSection) {
+            curvesSection.style.display = 'none';
+        }
     }
 });
