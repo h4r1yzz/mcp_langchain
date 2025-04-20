@@ -12,13 +12,26 @@ uv sync
 
 # Run the Flask application
 uv python flask_app.py
+
+# OR run with Streamlit
+uv run streamlit run combine2.py
 ```
 
 ### Alternative
 ```bash
 # Run with regular Python
 python flask_app.py
+
+# OR run with Streamlit
+streamlit run combine2.py
 ```
+
+### Application Versions
+
+This project supports two different implementations:
+
+1. **Flask Application** (`flask_app.py`) - Web-based interface with streaming support
+2. **Streamlit Application** (`combine2.py`) - Alternative interface using Streamlit
 
 ## System Architecture
 
