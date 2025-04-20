@@ -1,11 +1,23 @@
 import asyncio
 import json
+from typing import Dict, List, Any, AsyncIterator, Optional, Union
 
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain_core.messages import ToolMessage
 from langchain_anthropic import ChatAnthropic
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
+from langchain_core.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+
+class CustomStreamingHandler(StreamingStdOutCallbackHandler):
+    def __init__(self):
+        super().__init__()
+        self.tokens = []
+        self.response_text = ""
+
+    def on_llm_new_token(self, token: str, **_) -> None:
+        self.tokens.append(token)
+        self.response_text += token
 
 MODEL_COST_PER_1K_INPUT_TOKENS = {
     "claude-3-sonnet-20240229": 0.003,
@@ -32,38 +44,7 @@ class LASAnalyzerModel:
         self.model: ChatAnthropic = model
         self.python_path = python_path
         self.agent = None
-
-    def process_query(self, file_path, query, chat_history=None):
-        if chat_history is None:
-            chat_history = []
-        return asyncio.run(self._process_query_async(file_path, query, chat_history))
-
-    async def _process_query_async(self, file_path, query, chat_history):
-        async with MultiServerMCPClient() as client:
-            await client.connect_to_server(
-                "LAS File Analyzer",
-                command=self.python_path,
-                args=["file.py"],
-                encoding_error_handler="ignore",
-            )
-
-            self.agent = create_react_agent(self.model, client.get_tools(), debug=True)
-
-            if isinstance(file_path, str):
-                file_paths = [file_path]
-            else:
-                file_paths = file_path
-
-            # Prepare the query with information about all files
-            if len(file_paths) == 1:
-                file_info = f"Using the LAS file at {file_paths[0]}"
-            else:
-                files_list = "\n".join([f"- {path}" for path in file_paths])
-                file_info = f"Using the following LAS files:\n{files_list}"
-
-            full_query = f"{file_info}, {query}"
-
-            system_message = """
+        self.system_message = """
             When responding to queries about LAS files:
             1. Maintain context from previous messages in the conversation.
             2. When the user refers to something mentioned earlier (like "show me that", "yes please do that"),
@@ -153,6 +134,39 @@ class LASAnalyzerModel:
 
             When creating visualizations, include ALL identified relevant curves in the plot with clear labels.
             """
+
+    def process_query(self, file_path, query, chat_history=None):
+        if chat_history is None:
+            chat_history = []
+        return asyncio.run(self._process_query_async(file_path, query, chat_history))
+
+    async def _process_query_async(self, file_path, query, chat_history):
+        async with MultiServerMCPClient() as client:
+            await client.connect_to_server(
+                "LAS File Analyzer",
+                command=self.python_path,
+                args=["file.py"],
+                encoding_error_handler="ignore",
+            )
+
+            self.agent = create_react_agent(self.model, client.get_tools(), debug=True)
+
+            if isinstance(file_path, str):
+                file_paths = [file_path]
+            else:
+                file_paths = file_path
+
+            # Prepare the query with information about all files
+            if len(file_paths) == 1:
+                file_info = f"Using the LAS file at {file_paths[0]}"
+            else:
+                files_list = "\n".join([f"- {path}" for path in file_paths])
+                file_info = f"Using the following LAS files:\n{files_list}"
+
+            full_query = f"{file_info}, {query}"
+
+            # Use the system message defined in the class
+            system_message = self.system_message
 
             messages = [SystemMessage(content=system_message)]
             messages.extend(chat_history)
@@ -292,3 +306,130 @@ class LASAnalyzerModel:
                     continue
 
         return visualizations
+
+    async def process_query_stream_async(self, file_paths, query, chat_history=None):
+        if chat_history is None:
+            chat_history = []
+
+        # Start the streaming response
+        yield {"status": "start"}
+
+        try:
+            client = MultiServerMCPClient()
+            await client.connect_to_server(
+                "LAS File Analyzer",
+                command=self.python_path,
+                args=["file.py"],
+                encoding_error_handler="ignore",
+            )
+
+            streaming_agent = create_react_agent(self.model, client.get_tools(), debug=True)
+
+            if isinstance(file_paths, str):
+                file_paths = [file_paths]
+
+            if len(file_paths) == 1:
+                file_info = f"Using the LAS file at {file_paths[0]}"
+            else:
+                files_list = "\n".join([f"- {path}" for path in file_paths])
+                file_info = f"Using the following LAS files:\n{files_list}"
+
+            full_query = f"{file_info}, {query}"
+
+            system_message = self.system_message
+
+            messages = [SystemMessage(content=system_message)]
+            messages.extend(chat_history)
+            messages.append(HumanMessage(content=full_query))
+
+            streaming_handler = CustomStreamingHandler()
+
+            response_text = ""
+
+            # Start the agent execution with streaming
+            agent_task = asyncio.create_task(
+                streaming_agent.ainvoke(
+                    input={"messages": messages},
+                    config={"callbacks": [streaming_handler]}
+                )
+            )
+
+            # Stream tokens as they come in
+            while not agent_task.done():
+                current_response_length = len(streaming_handler.response_text)
+                if current_response_length > len(response_text):
+                    new_content = streaming_handler.response_text[len(response_text):]
+                    response_text = streaming_handler.response_text
+                    words = new_content.split(' ')
+
+                    chunk_size = min(3, len(words))
+                    for i in range(0, len(words), chunk_size):
+                        word_chunk = ' '.join(words[i:i+chunk_size])
+                        if word_chunk:
+                            yield {"chunk": word_chunk + ('' if i+chunk_size >= len(words) else ' ')}
+                            await asyncio.sleep(0.05)
+                await asyncio.sleep(0.01)
+
+            try:
+                response = await agent_task
+                if len(streaming_handler.response_text) > len(response_text):
+                    new_content = streaming_handler.response_text[len(response_text):]
+                    response_text = streaming_handler.response_text
+
+                    words = new_content.split(' ')
+                    chunk_size = min(3, len(words))
+                    for i in range(0, len(words), chunk_size):
+                        word_chunk = ' '.join(words[i:i+chunk_size])
+                        if word_chunk:
+                            yield {"chunk": word_chunk + ('' if i+chunk_size >= len(words) else ' ')}
+                            await asyncio.sleep(0.05)
+
+                if not response_text:
+                    if isinstance(response, dict) and "messages" in response:
+                        ai_messages = [
+                            msg for msg in response["messages"]
+                            if isinstance(msg, AIMessage)
+                        ]
+                        if ai_messages:
+                            last_message = ai_messages[-1]
+
+                            if isinstance(last_message.content, str):
+                                response_text = last_message.content
+                            elif isinstance(last_message.content, list):
+                                for item in last_message.content:
+                                    if isinstance(item, dict) and 'text' in item:
+                                        response_text += item['text']
+
+                    if response_text:
+                        words = response_text.split(' ')
+                        chunk_size = min(3, len(words))
+                        for i in range(0, len(words), chunk_size):
+                            word_chunk = ' '.join(words[i:i+chunk_size])
+                            if word_chunk:
+                                yield {"chunk": word_chunk + ('' if i+chunk_size >= len(words) else ' ')}
+                                await asyncio.sleep(0.05)
+            except Exception as e:
+                print(f"Error in agent execution: {str(e)}")
+                yield {"status": "error", "message": f"Error in agent execution: {str(e)}"}
+                return  # Exit early on error
+
+            thinking_process, tool_messages = self.extract_ai_and_tool_messages(response)
+            token_usage, token_cost = self._extract_token_usage_and_cost(response)
+
+            if tool_messages:
+                yield {"status": "tool_messages", "tool_messages": tool_messages}
+
+            yield {
+                "status": "complete",
+                "response": response_text,
+                "thinking_process": thinking_process,
+                "token_usage": token_usage,
+                "token_cost": token_cost,
+                "tool_messages": tool_messages if tool_messages else []
+            }
+
+            await client.close()
+
+        except Exception as e:
+            print(f"Error during streaming: {str(e)}")
+            yield {"status": "error", "message": f"Error during streaming: {str(e)}"}

@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
         curveList: document.getElementById('curve-list'),
         toggleDebug: document.getElementById('toggle-debug'),
         debugPanel: document.getElementById('debug-panel'),
+        streamingToggle: document.getElementById('streaming-toggle'),
         suggestionChips: document.querySelectorAll('.suggestion-chip'),
         fileItems: document.querySelectorAll('.document-panel__file-item')
     };
@@ -261,10 +262,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // FORMATTED RESPONSE
-        const formattedResponse = data.response.replace(/\n/g, '<br>');
         const textDiv = document.createElement('div');
         textDiv.className = 'response-text';
-        textDiv.innerHTML = formattedResponse;
+        textDiv.innerHTML = formatResponseText(data.response);
         responseDiv.appendChild(textDiv);
 
         // Ensure the response div expands to fit its content
@@ -415,6 +415,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Add streaming toggle state
+    let streamingEnabled = false;
+
+    // Add event listener for the streaming toggle
+    if (elements.streamingToggle) {
+        elements.streamingToggle.addEventListener('change', function() {
+            streamingEnabled = this.checked;
+        });
+    }
+
     function sendQuery() {
         const query = elements.queryInput.value.trim();
         if (!query) return;
@@ -426,28 +436,126 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading message
         loadingMessageDiv = showLoadingMessage('Generating Response...');
 
-        // Send query to server
-        fetch('/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ query })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                displayResponse(loadingMessageDiv, data);
-                updateDebugInfo(data);
-            } else {
+        if (streamingEnabled) {
+            // 1) Build SSE URL (encode the query)
+            const q = encodeURIComponent(query);
+            // 2) Kick off EventSource (GET /query_stream?query=…)
+            const es = new EventSource(`/query_stream?query=${q}`);
+
+            // Keep the existing loading message from showLoadingMessage()
+
+            let responseText = '';
+
+            // 3) Handle incoming SSE messages
+            es.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+
+                    if (data.status === 'start') {
+                        // Keep the existing loading message
+                    } else if (data.chunk) {
+                        // Append each chunk as it arrives
+                        responseText += data.chunk;
+
+                        // Only start displaying content once we have a reasonable amount of text
+                        // This prevents showing just a few words while still loading
+                        if (responseText.length > 10) {
+                            // Use a more efficient approach for updating the content
+                            // Only reformat the entire text every few chunks to improve performance
+                            if (data.chunk.includes('\n') || Math.random() < 0.2) {
+                                // Full reformat with markdown for new paragraphs or randomly
+                                loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                            } else {
+                                // Simple append for most chunks to improve performance
+                                const lastChild = loadingMessageDiv.lastChild;
+                                if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE) {
+                                    lastChild.innerHTML += data.chunk;
+                                } else {
+                                    loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                                }
+                            }
+                        }
+                        scrollToBottom();
+                    } else if (data.status === 'tool_messages') {
+                        // Update the debug panel with tool messages
+                        if (data.tool_messages && data.tool_messages.length > 0) {
+                            updateDebugInfo({tool_messages: data.tool_messages});
+                        }
+                    } else if (data.status === 'visualizations') {
+                        // Create a data object in the format expected by displayResponse
+                        const responseData = {
+                            response: responseText,
+                            plotly_visualizations: data.plotly_visualizations
+                        };
+
+                        displayResponse(loadingMessageDiv, responseData);
+                        scrollToBottom();
+                    } else if (data.status === 'complete') {
+                        // Stream is done; close the connection
+                        es.close();
+
+                        // If we have a response in the 'complete' message, use it
+                        if (data.response) {
+                            responseText = data.response;
+                        }
+
+                        // Only update the text if we haven't already processed visualizations
+                        if (!loadingMessageDiv.querySelector('.visualizations-wrapper')) {
+                            loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                        } else {
+                            // If we have visualizations, make sure the text part is updated
+                            const textDiv = loadingMessageDiv.querySelector('.response-text');
+                            if (textDiv) {
+                                textDiv.innerHTML = formatResponseText(responseText);
+                            }
+                        }
+
+                        // Update debug information if available
+                        if (data.thinking_process || data.token_usage || data.tool_messages) {
+                            updateDebugInfo(data);
+                        }
+
+                        scrollToBottom();
+                    } else if (data.status === 'error') {
+                        console.error('Streaming error:', data.message);
+                        loadingMessageDiv.innerHTML = `<div class="error-message">${data.message}</div>`;
+                        es.close();
+                    }
+                } catch (err) {
+                    console.error('Failed to parse SSE data:', err, 'Raw data:', e.data);
+                    loadingMessageDiv.innerHTML = `<div class="error-message">Error parsing streaming data: ${err.message}</div>`;
+                }
+            };
+
+            es.onerror = (err) => {
+                console.error('SSE error', err);
+                es.close();
+                loadingMessageDiv.innerHTML = '<div class="error-message">Streaming connection lost</div>';
+            };
+        } else {
+            // Use regular endpoint
+            fetch('/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ query })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    displayResponse(loadingMessageDiv, data);
+                    updateDebugInfo(data);
+                } else {
+                    loadingMessageDiv.remove();
+                    showErrorMessage(data.message || 'An error occurred');
+                }
+            })
+            .catch(() => {
                 loadingMessageDiv.remove();
-                showErrorMessage(data.message || 'An error occurred');
-            }
-        })
-        .catch(() => {
-            loadingMessageDiv.remove();
-            showErrorMessage('An error occurred while processing your request');
-        });
+                showErrorMessage('An error occurred while processing your request');
+            });
+        }
     }
 
     function clearChat() {
@@ -560,6 +668,15 @@ document.addEventListener('DOMContentLoaded', function() {
     function autoResizeTextarea() {
         elements.queryInput.style.height = 'auto';
         elements.queryInput.style.height = (elements.queryInput.scrollHeight) + 'px';
+    }
+
+    // Helper function to format response text with markdown or fallback to HTML
+    function formatResponseText(text) {
+        try {
+            return marked.parse(text);
+        } catch (err) {
+            return text.replace(/\n/g, '<br>');
+        }
     }
 
     elements.queryInput.addEventListener('input', autoResizeTextarea);

@@ -1,7 +1,7 @@
 /* Base variables */
 :root {
     /* Color palette */
-    --color-primary: #f69610;         /* Orange for primary actions */
+    --color-primary: #e67e22;         /* Darker orange for primary actions - better contrast */
     --color-primary-light: #ffedd5;   /* Light orange for backgrounds */
     --color-secondary: #475569;       /* Slate for secondary elements */
     --color-text: #1e293b;            /* Dark slate for text */
@@ -81,7 +81,7 @@ body {
 
 .logo {
     height: auto;
-    width: 180px; /* Adjust width for the horizontal logo */
+    width: 180px;
     max-height: 2.5rem;
     object-fit: contain;
 }
@@ -99,6 +99,75 @@ body {
 .header-actions {
     display: flex;
     gap: var(--spacing-sm);
+    align-items: center;
+}
+
+.streaming-toggle-container {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.streaming-toggle-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-light);
+}
+
+/* Toggle Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 20px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--color-border);
+    transition: .4s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: .4s;
+}
+
+input:checked + .slider {
+    background-color: var(--color-primary);
+}
+
+input:focus + .slider {
+    box-shadow: 0 0 1px var(--color-primary);
+}
+
+input:checked + .slider:before {
+    transform: translateX(20px);
+}
+
+/* Rounded sliders */
+.slider.round {
+    border-radius: 34px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
 }
 
 .settings-button {
@@ -163,6 +232,7 @@ body {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .document-panel__upload-btn:hover {
@@ -380,7 +450,7 @@ body {
     flex-direction: column;
     gap: var(--spacing-md);
     align-items: stretch;
-    min-height: 0; 
+    min-height: 0;
 }
 
 .chat-container__welcome {
@@ -455,6 +525,7 @@ body {
     justify-content: center;
     cursor: pointer;
     transition: background-color var(--transition-fast);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .chat-container__send-btn:hover {
@@ -475,17 +546,20 @@ body {
 
 .user {
     align-self: flex-end;
-    background-color: var(--color-primary);
-    color: white;
+    background-color: #f69610;
+    color: #ffffff;
     border-bottom-right-radius: var(--border-radius-sm);
     padding: var(--spacing-md);
+    font-weight: 500;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .assistant {
     width: 90%;
     align-self: flex-start;
-    background-color: var(--color-surface);
-    border: var(--border-width) solid var(--color-border);
+    background-color: #fff8e1;
+    border: var(--border-width) solid #f5f5f5;
     border-bottom-left-radius: var(--border-radius-sm);
     max-height: none;
     overflow-y: visible;
@@ -493,10 +567,22 @@ body {
     height: auto;
     box-sizing: border-box;
     padding: var(--spacing-md);
+    color: #5d4037;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .message p {
     margin: 0 0 var(--spacing-sm) 0;
+}
+
+.error-message {
+    color: var(--color-error);
+    font-weight: 500;
+    padding: var(--spacing-sm);
+    border: 1px solid var(--color-error);
+    border-radius: var(--border-radius-md);
+    background-color: #fee2e2;
+    margin-top: var(--spacing-sm);
 }
 
 .message p:last-child {
@@ -519,6 +605,12 @@ body {
     border-radius: 3px;
 }
 
+.assistant code {
+    background-color: rgba(93, 64, 55, 0.1);
+    color: #4e342e;
+    border: 1px solid rgba(93, 64, 55, 0.2);
+}
+
 .message pre {
     background-color: rgba(0, 0, 0, 0.05);
     padding: var(--spacing-sm);
@@ -527,18 +619,12 @@ body {
     margin: var(--spacing-sm) 0;
 }
 
-/* Error message */
-.error-message {
-    background-color: #fee2e2;
-    color: var(--color-error);
-    padding: var(--spacing-md);
-    border-radius: var(--border-radius-md);
-    margin: var(--spacing-sm) 0;
-    border: 1px solid #fecaca;
-    width: 100%;
-    text-align: left;
-    font-weight: normal;
+.assistant pre {
+    background-color: rgba(93, 64, 55, 0.05);
+    border: 1px solid rgba(93, 64, 55, 0.15);
 }
+
+/* Error message styles are defined above */
 
 /* Loading indicators */
 .spinner {

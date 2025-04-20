@@ -14,6 +14,13 @@
             <img src="{{ url_for('static', filename='img/grad_horizontal.png') }}" alt="Rosary Labs Logo" class="logo">
         </div>
         <div class="header-actions">
+            <div class="streaming-toggle-container">
+                <label class="streaming-toggle-label" for="streaming-toggle">Streaming</label>
+                <label class="switch">
+                    <input type="checkbox" id="streaming-toggle">
+                    <span class="slider round"></span>
+                </label>
+            </div>
             <button class="settings-button" aria-label="Settings" id="toggle-debug">
                 <i class="fas fa-cog"></i>
             </button>

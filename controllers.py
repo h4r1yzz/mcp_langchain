@@ -64,6 +64,25 @@ class LASChatController:
             "file_info": file_info
         }
 
+    async def handle_query_stream(self, query):
+        uploaded_files = self.state.get_uploaded_files()
+        if not uploaded_files:
+            yield {"status": "error", "message": "Please upload a LAS file first."}
+            return
+
+        chat_history = self.state.get_messages()
+        file_paths = [file_info['path'] for file_info in uploaded_files.values()]
+
+        try:
+            async for chunk in self.model.process_query_stream_async(
+                file_paths,
+                query,
+                chat_history  
+            ):
+                yield chunk 
+        except Exception as e:
+            yield {"status": "error", "message": f"Error during streaming: {str(e)}"}
+
     def cleanup_session_files(self):
         uploaded_files = self.state.get_uploaded_files()
 
