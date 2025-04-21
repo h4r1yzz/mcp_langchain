@@ -305,6 +305,45 @@ class LASAnalyzerModel:
 
         return visualizations
 
+    async def _chunk_and_stream_text(self, text, current_text=""):
+        """Helper method to chunk text and stream it."""
+        if not text or len(text) <= len(current_text):
+            return
+
+        new_content = text[len(current_text):]
+        words = new_content.split(' ')
+
+        chunk_size = min(3, len(words))
+        for i in range(0, len(words), chunk_size):
+            word_chunk = ' '.join(words[i:i+chunk_size])
+            if word_chunk:
+                yield {"chunk": word_chunk + ('' if i+chunk_size >= len(words) else ' ')}
+                await asyncio.sleep(0.05)
+
+    async def _extract_fallback_response(self, response):
+        if not isinstance(response, dict) or "messages" not in response:
+            return ""
+
+        ai_messages = [
+            msg for msg in response["messages"]
+            if isinstance(msg, AIMessage)
+        ]
+
+        if not ai_messages:
+            return ""
+
+        last_message = ai_messages[-1]
+        response_text = ""
+
+        if isinstance(last_message.content, str):
+            response_text = last_message.content
+        elif isinstance(last_message.content, list):
+            for item in last_message.content:
+                if isinstance(item, dict) and 'text' in item:
+                    response_text += item['text']
+
+        return response_text
+
     async def process_query_stream_async(self, file_paths, query, chat_history=None):
         if chat_history is None:
             chat_history = []
@@ -341,7 +380,6 @@ class LASAnalyzerModel:
             messages.append(HumanMessage(content=full_query))
 
             streaming_handler = CustomStreamingHandler()
-
             response_text = ""
 
             # Start the agent execution with streaming
@@ -351,61 +389,29 @@ class LASAnalyzerModel:
                     config={"callbacks": [streaming_handler]}
                 )
             )
-
-            # Stream tokens as they come in
+            # Phase 1: Stream tokens while agent is running
             while not agent_task.done():
-                current_response_length = len(streaming_handler.response_text)
-                if current_response_length > len(response_text):
-                    new_content = streaming_handler.response_text[len(response_text):]
+                if len(streaming_handler.response_text) > len(response_text):
+                    async for chunk in self._chunk_and_stream_text(streaming_handler.response_text, response_text):
+                        yield chunk
                     response_text = streaming_handler.response_text
-                    words = new_content.split(' ')
-
-                    chunk_size = min(3, len(words))
-                    for i in range(0, len(words), chunk_size):
-                        word_chunk = ' '.join(words[i:i+chunk_size])
-                        if word_chunk:
-                            yield {"chunk": word_chunk + ('' if i+chunk_size >= len(words) else ' ')}
-                            await asyncio.sleep(0.05)
                 await asyncio.sleep(0.01)
 
             try:
                 response = await agent_task
+                # Phase 2: Stream any final tokens from the handler
                 if len(streaming_handler.response_text) > len(response_text):
-                    new_content = streaming_handler.response_text[len(response_text):]
+                    async for chunk in self._chunk_and_stream_text(streaming_handler.response_text, response_text):
+                        yield chunk
                     response_text = streaming_handler.response_text
-
-                    words = new_content.split(' ')
-                    chunk_size = min(3, len(words))
-                    for i in range(0, len(words), chunk_size):
-                        word_chunk = ' '.join(words[i:i+chunk_size])
-                        if word_chunk:
-                            yield {"chunk": word_chunk + ('' if i+chunk_size >= len(words) else ' ')}
-                            await asyncio.sleep(0.05)
-
+                # Phase 3: Fallback if streaming handler didn't capture anything
                 if not response_text:
-                    if isinstance(response, dict) and "messages" in response:
-                        ai_messages = [
-                            msg for msg in response["messages"]
-                            if isinstance(msg, AIMessage)
-                        ]
-                        if ai_messages:
-                            last_message = ai_messages[-1]
+                    fallback_text = await self._extract_fallback_response(response)
+                    if fallback_text:
+                        async for chunk in self._chunk_and_stream_text(fallback_text):
+                            yield chunk
+                        response_text = fallback_text
 
-                            if isinstance(last_message.content, str):
-                                response_text = last_message.content
-                            elif isinstance(last_message.content, list):
-                                for item in last_message.content:
-                                    if isinstance(item, dict) and 'text' in item:
-                                        response_text += item['text']
-
-                    if response_text:
-                        words = response_text.split(' ')
-                        chunk_size = min(3, len(words))
-                        for i in range(0, len(words), chunk_size):
-                            word_chunk = ' '.join(words[i:i+chunk_size])
-                            if word_chunk:
-                                yield {"chunk": word_chunk + ('' if i+chunk_size >= len(words) else ' ')}
-                                await asyncio.sleep(0.05)
             except Exception as e:
                 print(f"Error in agent execution: {str(e)}")
                 yield {"status": "error", "message": f"Error in agent execution: {str(e)}"}
