@@ -578,6 +578,32 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Function to reset the metadata panel
+    function resetMetadataPanel() {
+        // Show empty state message
+        const emptyState = document.getElementById('metadata-empty-state');
+        if (emptyState) {
+            emptyState.style.display = 'block';
+        }
+
+        // Clear metadata details
+        const metadataDetails = document.getElementById('metadata-details');
+        if (metadataDetails) {
+            metadataDetails.innerHTML = '';
+            metadataDetails.style.display = 'none';
+        }
+
+        // Clear and hide curves section
+        const curvesSection = document.getElementById('metadata-curves');
+        const curveList = document.getElementById('curve-list');
+        if (curvesSection) {
+            curvesSection.style.display = 'none';
+        }
+        if (curveList) {
+            curveList.innerHTML = '';
+        }
+    }
+
     function clearChat() {
         fetch('/clear', {
             method: 'POST'
@@ -593,6 +619,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Reset debug info
                 resetDebugInfo();
+
+                // Reset metadata panel (Well Information)
+                resetMetadataPanel();
             }
         })
         .catch(() => {
