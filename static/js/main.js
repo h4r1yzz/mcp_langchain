@@ -437,101 +437,97 @@ document.addEventListener('DOMContentLoaded', function() {
         loadingMessageDiv = showLoadingMessage('Generating Response...');
 
         if (streamingEnabled) {
-            // 1) Build SSE URL (encode the query)
             const q = encodeURIComponent(query);
-            // 2) Kick off EventSource (GET /query_stream?query=…)
-            const es = new EventSource(`/query_stream?query=${q}`);
-
-            // Keep the existing loading message from showLoadingMessage()
-
             let responseText = '';
 
-            // 3) Handle incoming SSE messages
-            es.onmessage = (e) => {
-                try {
-                    const data = JSON.parse(e.data);
+            // Phase 1: Stream the text response
+            fetch(`/query_stream?query=${q}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
 
-                    if (data.status === 'start') {
-                        // Keep the existing loading message
-                    } else if (data.chunk) {
-                        // Append each chunk as it arrives
-                        responseText += data.chunk;
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+
+                    function processStream({ done, value }) {
+                        if (done) {
+                            console.log("Text streaming complete, fetching visualizations and debug info...");
+
+                            // Fetch debug information
+                            fetch(`/query_stream?get_debug_info=true`)
+                                .then(response => response.json())
+                                .then(debugData => {
+                                    console.log("Debug info received");
+                                    if (debugData.status === 'success') {
+                                        // Update debug panel with the received information
+                                        updateDebugInfo(debugData);
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error fetching debug info:', error);
+                                });
+
+                            // Fetch visualizations (Phase 2)
+                            fetch(`/query_stream?get_visualizations=true`)
+                                .then(response => response.json())
+                                .then(data => {
+                                    console.log("Visualization data received:", data);
+                                    if (data.status === 'success' && data.plotly_visualizations && data.plotly_visualizations.length > 0) {
+                                        console.log(`Received ${data.plotly_visualizations.length} visualizations`);
+                                        // Create a data object in the format expected by displayResponse
+                                        const responseData = {
+                                            response: responseText,
+                                            plotly_visualizations: data.plotly_visualizations
+                                        };
+
+                                        displayResponse(loadingMessageDiv, responseData);
+                                    } else {
+                                        console.log("No visualizations received");
+                                        // If no visualizations, just make sure the text is formatted
+                                        loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                                    }
+                                    scrollToBottom();
+                                })
+                                .catch(error => {
+                                    console.error('Error fetching visualizations:', error);
+                                    // Still display the text response even if visualizations fail
+                                    loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                                });
+                            return;
+                        }
+
+                        const chunk = decoder.decode(value, { stream: true });
+                        responseText += chunk;
 
                         // Only start displaying content once we have a reasonable amount of text
-                        // This prevents showing just a few words while still loading
                         if (responseText.length > 10) {
                             // Use a more efficient approach for updating the content
-                            // Only reformat the entire text every few chunks to improve performance
-                            if (data.chunk.includes('\n') || Math.random() < 0.2) {
+                            if (chunk.includes('\n') || Math.random() < 0.2) {
                                 // Full reformat with markdown for new paragraphs or randomly
                                 loadingMessageDiv.innerHTML = formatResponseText(responseText);
                             } else {
                                 // Simple append for most chunks to improve performance
                                 const lastChild = loadingMessageDiv.lastChild;
                                 if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE) {
-                                    lastChild.innerHTML += data.chunk;
+                                    lastChild.innerHTML += chunk;
                                 } else {
                                     loadingMessageDiv.innerHTML = formatResponseText(responseText);
                                 }
                             }
                         }
                         scrollToBottom();
-                    } else if (data.status === 'tool_messages') {
-                        // Update the debug panel with tool messages
-                        if (data.tool_messages && data.tool_messages.length > 0) {
-                            updateDebugInfo({tool_messages: data.tool_messages});
-                        }
-                    } else if (data.status === 'visualizations') {
-                        // Create a data object in the format expected by displayResponse
-                        const responseData = {
-                            response: responseText,
-                            plotly_visualizations: data.plotly_visualizations
-                        };
 
-                        displayResponse(loadingMessageDiv, responseData);
-                        scrollToBottom();
-                    } else if (data.status === 'complete') {
-                        // Stream is done; close the connection
-                        es.close();
-
-                        // If we have a response in the 'complete' message, use it
-                        if (data.response) {
-                            responseText = data.response;
-                        }
-
-                        // Only update the text if we haven't already processed visualizations
-                        if (!loadingMessageDiv.querySelector('.visualizations-wrapper')) {
-                            loadingMessageDiv.innerHTML = formatResponseText(responseText);
-                        } else {
-                            // If we have visualizations, make sure the text part is updated
-                            const textDiv = loadingMessageDiv.querySelector('.response-text');
-                            if (textDiv) {
-                                textDiv.innerHTML = formatResponseText(responseText);
-                            }
-                        }
-
-                        // Update debug information if available
-                        if (data.thinking_process || data.token_usage || data.tool_messages) {
-                            updateDebugInfo(data);
-                        }
-
-                        scrollToBottom();
-                    } else if (data.status === 'error') {
-                        console.error('Streaming error:', data.message);
-                        loadingMessageDiv.innerHTML = `<div class="error-message">${data.message}</div>`;
-                        es.close();
+                        // Continue reading the stream
+                        return reader.read().then(processStream);
                     }
-                } catch (err) {
-                    console.error('Failed to parse SSE data:', err, 'Raw data:', e.data);
-                    loadingMessageDiv.innerHTML = `<div class="error-message">Error parsing streaming data: ${err.message}</div>`;
-                }
-            };
 
-            es.onerror = (err) => {
-                console.error('SSE error', err);
-                es.close();
-                loadingMessageDiv.innerHTML = '<div class="error-message">Streaming connection lost</div>';
-            };
+                    return reader.read().then(processStream);
+                })
+                .catch(error => {
+                    console.error('Error during text streaming:', error);
+                    loadingMessageDiv.innerHTML = `<div class="error-message">Error during text streaming: ${error.message}</div>`;
+                });
         } else {
             // Use regular endpoint
             fetch('/query', {
