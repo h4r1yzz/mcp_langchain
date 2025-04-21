@@ -245,17 +245,22 @@ input:checked + .slider:before {
     border: 2px dashed var(--color-border);
     border-radius: var(--border-radius-md);
     text-align: center;
-    transition: background-color var(--transition-normal);
+    transition: all var(--transition-normal);
+    position: relative;
+    z-index: 10;
 }
 
 .document-panel__upload-area:hover {
     background-color: var(--color-primary-light);
     cursor: pointer;
+    border-color: var(--color-primary);
 }
 
 .document-panel__upload-area--active {
     background-color: var(--color-primary-light);
     border-color: var(--color-primary);
+    border-style: solid;
+    box-shadow: 0 0 10px rgba(246, 150, 16, 0.3);
 }
 
 .document-panel__file-input {

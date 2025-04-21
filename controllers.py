@@ -53,9 +53,11 @@ class LASChatController:
         # Extract metadata from the LAS file
         file_info = self._extract_las_metadata(file_path)
 
-        # Update state
-        self.state.set_file_path(file_path)
+        # Add the file to the uploaded files collection
         self.state.add_uploaded_file(uploaded_file.filename, file_path, file_info)
+
+        if not self.state.get_file_path():
+            self.state.set_file_path(file_path)
 
         return {
             "status": "success",

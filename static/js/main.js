@@ -295,6 +295,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const uploadMessageDiv = showLoadingMessage('Uploading file...');
 
+        // Check if file with same name already exists
+        const existingFile = Array.from(elements.filesList.children).find(item =>
+            item.dataset.filename === file.name
+        );
+
+        if (existingFile) {
+            // If file already exists, show a message and highlight it
+            uploadMessageDiv.innerHTML = `File <strong>${file.name}</strong> is already uploaded.`;
+
+            // Highlight the existing file
+            document.querySelectorAll('.document-panel__file-item').forEach(item => {
+                item.classList.remove('document-panel__file-item--active');
+            });
+            existingFile.classList.add('document-panel__file-item--active');
+
+            // Update metadata panel with the existing file's info
+            if (existingFile.dataset.fileInfo) {
+                const fileInfo = JSON.parse(existingFile.dataset.fileInfo);
+                updateMetadataPanel(fileInfo);
+            }
+
+            return;
+        }
+
         fetch('/upload', {
             method: 'POST',
             body: formData
@@ -627,27 +651,65 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Handle drag and drop for file upload
     if (elements.uploadArea) {
-        elements.uploadArea.addEventListener('dragover', function(e) {
+        // Create a reusable function for handling file drops
+        function handleFileDrop(e) {
             e.preventDefault();
-            this.classList.add('document-panel__upload-area--active');
-        });
-
-        elements.uploadArea.addEventListener('dragleave', function() {
-            this.classList.remove('document-panel__upload-area--active');
-        });
-
-        elements.uploadArea.addEventListener('drop', function(e) {
-            e.preventDefault();
-            this.classList.remove('document-panel__upload-area--active');
+            e.stopPropagation();
+            elements.uploadArea.classList.remove('document-panel__upload-area--active');
 
             const files = e.dataTransfer.files;
             if (files.length > 0) {
+                // Set the file input's files property
                 elements.fileInput.files = files;
-                const event = new Event('change');
-                elements.fileInput.dispatchEvent(event);
-                elements.uploadForm.dispatchEvent(new Event('submit'));
+                // Upload the first file directly
+                uploadFile(files[0]);
+
+                // If multiple files were dropped, upload them one by one
+                if (files.length > 1) {
+                    for (let i = 1; i < files.length; i++) {
+                        setTimeout(() => {
+                            uploadFile(files[i]);
+                        }, i * 1000); // Stagger uploads by 1 second each
+                    }
+                }
             }
+        }
+
+        // Prevent default behavior for dragover to allow drop
+        elements.uploadArea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.classList.add('document-panel__upload-area--active');
         });
+
+        // Handle drag leave
+        elements.uploadArea.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.classList.remove('document-panel__upload-area--active');
+        });
+
+        // Handle drop event
+        elements.uploadArea.addEventListener('drop', handleFileDrop);
+
+        // Also add the same handlers to the upload form and label for better coverage
+        const uploadLabel = document.querySelector('.document-panel__upload-label');
+        if (uploadLabel) {
+            uploadLabel.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                elements.uploadArea.classList.add('document-panel__upload-area--active');
+            });
+
+            uploadLabel.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                elements.uploadArea.classList.remove('document-panel__upload-area--active');
+            });
+
+            // Use the same drop handler for the label
+            uploadLabel.addEventListener('drop', handleFileDrop);
+        }
     }
 
     // Handle suggestion chips
@@ -668,11 +730,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Helper function to format response text with markdown or fallback to HTML
     function formatResponseText(text) {
-        try {
-            return marked.parse(text);
-        } catch (err) {
-            return text.replace(/\n/g, '<br>');
-        }
+        // Try to parse with marked, fallback to simple line breaks if it fails
+        return marked.parse(text) || text.replace(/\n/g, '<br>');
     }
 
     elements.queryInput.addEventListener('input', autoResizeTextarea);

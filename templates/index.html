@@ -47,6 +47,18 @@
                 </label>
             </form>
         </div>
+        <script>
+            // Add additional event listeners for the document to handle drag and drop
+            document.addEventListener('DOMContentLoaded', function() {
+                // Prevent default drag behaviors on the document
+                ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                    document.body.addEventListener(eventName, function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }, false);
+                });
+            });
+        </script>
 
         <ul class="document-panel__file-list" id="files-list">
             {% for file_name, file_info in uploaded_files.items() %}
