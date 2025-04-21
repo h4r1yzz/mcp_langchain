@@ -4,6 +4,17 @@ This repo is for experimenting with creating tools for AI agents to run using An
 
 ## Setup and Running
 
+### API Key Configuration
+
+Before running the application, you need to create a `.env` file in the root directory to store your Anthropic API key:
+
+```bash
+# Create a .env file
+echo "ANTHROPIC_API_KEY=your_api_key_here" > .env
+```
+
+Replace `your_api_key_here` with your actual Anthropic API key. This file is required for the application to authenticate with the Claude AI model.
+
 ### Using uv (Recommended)
 
 ```bash
@@ -11,7 +22,7 @@ This repo is for experimenting with creating tools for AI agents to run using An
 uv sync
 
 # Run the Flask application
-uv python flask_app.py
+uv run python flask_app.py
 
 # OR run with Streamlit
 uv run streamlit run combine2.py
@@ -38,6 +49,7 @@ This project supports two different implementations:
 ### Core Components
 
 #### `flask_app.py`
+
 The main application entry point that:
 - Initializes the Flask web server
 - Sets up routes for the web interface
@@ -46,7 +58,9 @@ The main application entry point that:
 - Serves static files and visualizations
 
 #### `controllers.py`
+
 The `LASChatController` class serves as an intermediary between the web interface and the model:
+
 - Handles user queries and file uploads
 - Manages the application state
 - Processes both streaming and non-streaming requests
@@ -54,7 +68,9 @@ The `LASChatController` class serves as an intermediary between the web interfac
 - Cleans up temporary files
 
 #### `models.py`
+
 The `LASAnalyzerModel` class handles the AI processing:
+
 - Initializes and configures the Claude AI model
 - Processes user queries using the LangChain framework
 - Extracts responses, thinking processes, and tool messages
@@ -63,7 +79,9 @@ The `LASAnalyzerModel` class handles the AI processing:
 - Handles visualization extraction
 
 #### `state.py`
+
 The `StateManager` class manages application state:
+
 - Stores chat history (messages between user and assistant)
 - Tracks uploaded files and their metadata
 - Maintains debug information (thinking process, token usage)
@@ -71,7 +89,9 @@ The `StateManager` class manages application state:
 - Supports both Streamlit and Flask state management styles
 
 #### `file.py`
+
 A Python script that provides tools for LAS file analysis:
+
 - Exposes functions that can be called by the AI agent
 - Parses and analyzes LAS file data
 - Generates visualizations of well log data
@@ -81,13 +101,17 @@ A Python script that provides tools for LAS file analysis:
 ### Frontend Components
 
 #### `templates/index.html`
+
 The main HTML template that:
+
 - Defines the user interface structure
 - Includes necessary JavaScript and CSS
 - Sets up the chat interface and file upload area
 
 #### `static/js/main.js`
+
 Client-side JavaScript that:
+
 - Handles user interactions
 - Manages file uploads
 - Processes both streaming and non-streaming responses
@@ -95,6 +119,7 @@ Client-side JavaScript that:
 - Updates the UI in real-time
 
 #### `static/css/styles.css`
+
 Defines the styling for the application.
 
 ## Data Flow
@@ -108,6 +133,7 @@ Defines the styling for the application.
 6. Frontend displays the response and any visualizations
 
 ### Streaming Flow
+
 1. User uploads LAS file(s) → Same as non-streaming
 2. User sends query → `flask_app.py` → `controller.handle_query_stream()`
 3. Controller retrieves chat history and file paths
