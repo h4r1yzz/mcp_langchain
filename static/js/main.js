@@ -212,11 +212,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             // Render the plot
                             Plotly.newPlot(cleanId, viz.plot_data, layout, {
                                 responsive: true,
-                                scrollZoom: true,  
-                                displayModeBar: true, 
-                                displaylogo: false, 
-                                modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'], 
-                                showAxisDragHandles: true, 
+                                scrollZoom: true,
+                                displayModeBar: true,
+                                displaylogo: false,
+                                modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
+                                showAxisDragHandles: true,
                                 fillFrame: true
                             })
                             .then(function() {
@@ -262,9 +262,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // FORMATTED RESPONSE
+        const formattedResponse = data.response.replace(/\n/g, '<br>');
         const textDiv = document.createElement('div');
         textDiv.className = 'response-text';
-        textDiv.innerHTML = formatResponseText(data.response);
+        textDiv.innerHTML = formattedResponse;
         responseDiv.appendChild(textDiv);
 
         // Ensure the response div expands to fit its content
@@ -464,94 +465,149 @@ document.addEventListener('DOMContentLoaded', function() {
             const q = encodeURIComponent(query);
             let responseText = '';
 
-            // Phase 1: Stream the text response
-            fetch(`/query_stream?query=${q}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! Status: ${response.status}`);
-                    }
+            // Stream the text response using custom event stream format
+            let hasReceivedVisualizations = false;
 
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
+            function connectToEventStream() {
+                fetch(`/query_stream?query=${q}`, {
+                        headers: {
+                            'Accept': 'text/event-stream'
+                        }
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! Status: ${response.status}`);
+                        }
 
-                    function processStream({ done, value }) {
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = "";
+
+                        function processStream({ done, value }) {
                         if (done) {
-                            console.log("Text streaming complete, fetching visualizations and debug info...");
+                            // If we still have data in the buffer, try to process it
+                            const trimmedBuffer = buffer.trim();
+                            if (trimmedBuffer) {
+                                try {
+                                    handleEvent(JSON.parse(trimmedBuffer));
+                                } catch (e) {
+                                }
+                            }
 
-                            // Fetch debug information
-                            fetch(`/query_stream?get_debug_info=true`)
-                                .then(response => response.json())
-                                .then(debugData => {
-                                    console.log("Debug info received");
-                                    if (debugData.status === 'success') {
-                                        // Update debug panel with the received information
-                                        updateDebugInfo(debugData);
-                                    }
-                                })
-                                .catch(error => {
-                                    console.error('Error fetching debug info:', error);
-                                });
-
-                            // Fetch visualizations (Phase 2)
-                            fetch(`/query_stream?get_visualizations=true`)
-                                .then(response => response.json())
-                                .then(data => {
-                                    console.log("Visualization data received:", data);
-                                    if (data.status === 'success' && data.plotly_visualizations && data.plotly_visualizations.length > 0) {
-                                        console.log(`Received ${data.plotly_visualizations.length} visualizations`);
-                                        // Create a data object in the format expected by displayResponse
-                                        const responseData = {
-                                            response: responseText,
-                                            plotly_visualizations: data.plotly_visualizations
-                                        };
-
-                                        displayResponse(loadingMessageDiv, responseData);
-                                    } else {
-                                        console.log("No visualizations received");
-                                        // If no visualizations, just make sure the text is formatted
-                                        loadingMessageDiv.innerHTML = formatResponseText(responseText);
-                                    }
-                                    scrollToBottom();
-                                })
-                                .catch(error => {
-                                    console.error('Error fetching visualizations:', error);
-                                    // Still display the text response even if visualizations fail
-                                    loadingMessageDiv.innerHTML = formatResponseText(responseText);
-                                });
+                            // If no visualizations were received, just make sure the text is formatted
+                            if (!hasReceivedVisualizations) {
+                                loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                            }
+                            scrollToBottom();
                             return;
                         }
 
+                        // Decode the chunk and add it to our buffer
                         const chunk = decoder.decode(value, { stream: true });
-                        responseText += chunk;
+                        buffer += chunk;
 
-                        // Only start displaying content once we have a reasonable amount of text
-                        if (responseText.length > 10) {
-                            // Use a more efficient approach for updating the content
-                            if (chunk.includes('\n') || Math.random() < 0.2) {
-                                // Full reformat with markdown for new paragraphs or randomly
-                                loadingMessageDiv.innerHTML = formatResponseText(responseText);
-                            } else {
-                                // Simple append for most chunks to improve performance
-                                const lastChild = loadingMessageDiv.lastChild;
-                                if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE) {
-                                    lastChild.innerHTML += chunk;
-                                } else {
-                                    loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                        // Process complete JSON objects in the buffer
+                        let newlineIndex;
+                        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                            const eventJson = buffer.slice(0, newlineIndex);
+                            buffer = buffer.slice(newlineIndex + 1);
+
+                            const trimmedJson = eventJson.trim();
+                            if (trimmedJson) {
+                                try {
+                                    handleEvent(JSON.parse(trimmedJson));
+                                } catch (e) {
                                 }
                             }
                         }
-                        scrollToBottom();
 
                         // Continue reading the stream
                         return reader.read().then(processStream);
                     }
 
+                    // Handler for different event types
+                    function handleEvent(event) {
+                        if (!event?.event) return;
+
+                        switch (event.event) {
+                            case 'text_chunk':
+                                if (event.data?.text) {
+                                    const textChunk = event.data.text;
+                                    responseText += textChunk;
+
+                                    // Only start displaying content once we have a reasonable amount of text
+                                    if (responseText.length > 10) {
+                                        // Use a more efficient approach for updating the content
+                                        if (textChunk.includes('\n')) {
+                                            // Full reformat with markdown for new paragraphs
+                                            loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                                        } else {
+                                            // Simple append for most chunks to improve performance
+                                            const lastChild = loadingMessageDiv.lastChild;
+                                            if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE) {
+                                                lastChild.innerHTML += textChunk;
+                                            } else {
+                                                loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                                            }
+                                        }
+                                        scrollToBottom();
+                                    }
+                                }
+                                break;
+                            case 'visualizations':
+                                if (event.data?.plotly_visualizations?.length > 0) {
+                                    hasReceivedVisualizations = true;
+                                    // Create a data object in the format expected by displayResponse
+                                    const responseData = {
+                                        response: responseText,
+                                        plotly_visualizations: event.data.plotly_visualizations
+                                    };
+
+                                    // Display the response with visualizations
+                                    displayResponse(loadingMessageDiv, responseData);
+                                    scrollToBottom();
+                                }
+                                break;
+                            case 'tool_messages':
+                                if (event.data?.tool_messages) {
+                                    // Store tool messages for later use
+                                    updateDebugInfo({ tool_messages: event.data.tool_messages });
+                                }
+                                break;
+                            case 'complete':
+                                if (event.data) {
+                                    // Update debug panel with the received information
+                                    updateDebugInfo(event.data);
+
+                                    // If we haven't received visualizations yet, just format the text response
+                                    if (!hasReceivedVisualizations) {
+                                        loadingMessageDiv.innerHTML = formatResponseText(responseText);
+                                    }
+                                    scrollToBottom();
+                                }
+                                break;
+                            case 'error':
+                                if (event.data?.message) {
+                                    // Clear any existing content and show the error message
+                                    loadingMessageDiv.innerHTML = '';
+                                    const errorDiv = document.createElement('div');
+                                    errorDiv.className = 'error-message';
+                                    errorDiv.textContent = `Error: ${event.data.message}`;
+                                    loadingMessageDiv.appendChild(errorDiv);
+                                }
+                                break;
+                            default:
+                        }
+                    }
                     return reader.read().then(processStream);
                 })
                 .catch(error => {
-                    console.error('Error during text streaming:', error);
-                    loadingMessageDiv.innerHTML = `<div class="error-message">Error during text streaming: ${error.message}</div>`;
+                    loadingMessageDiv.innerHTML = `<div class="error-message">Error during streaming: ${error.message}</div>`;
                 });
+            }
+
+            // Start the connection
+            connectToEventStream();
         } else {
             // Use regular endpoint
             fetch('/query', {
@@ -669,8 +725,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Toggle debug panel - removed duplicate event listener as it's handled in initialization
-
     // Handle upload button click
     if (elements.uploadBtn) {
         elements.uploadBtn.addEventListener('click', function() {
@@ -759,8 +813,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Helper function to format response text with markdown or fallback to HTML
     function formatResponseText(text) {
-        // Try to parse with marked, fallback to simple line breaks if it fails
-        return marked.parse(text) || text.replace(/\n/g, '<br>');
+        // Check if marked is available, otherwise fallback to simple line breaks
+        if (typeof marked !== 'undefined') {
+            try {
+                return marked.parse(text);
+            } catch (e) {
+                console.warn('Error parsing markdown:', e);
+                return text.replace(/\n/g, '<br>');
+            }
+        } else {
+            // Fallback if marked is not available
+            return text.replace(/\n/g, '<br>');
+        }
     }
 
     elements.queryInput.addEventListener('input', autoResizeTextarea);

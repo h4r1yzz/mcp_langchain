@@ -26,6 +26,13 @@ os.makedirs(visualizations_dir, exist_ok=True)
 # Initialize Anthropic model
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 
+EVENT_STREAM_MIMETYPE = 'text/event-stream'
+EVENT_STREAM_HEADERS = {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+}
+
 # Initialize our components
 model_instance = ChatAnthropic(
     api_key=anthropic_api_key,
@@ -151,114 +158,118 @@ def clear_chat():
 @app.route('/query_stream')
 def process_query_stream():
     query = request.args.get("query", "")
-    get_visualizations = request.args.get("get_visualizations", "false").lower() == "true"
     get_debug_info = request.args.get("get_debug_info", "false").lower() == "true"
 
-    # If requesting debug information only, return the stored debug info
+    # If requesting debug information, return the stored debug info
     if get_debug_info:
         return jsonify({
             "status": "success",
             "thinking_process": state_manager.get_thinking_process(),
             "token_usage": state_manager.get_token_usage(),
-            "token_cost": {"input": 0, "output": 0, "total": 0},  # Default values
+            "token_cost": {"input": 0, "output": 0, "total": 0},
             "tool_messages": state_manager.get_tool_messages()
-        })
-
-    if get_visualizations:
-        # Get visualizations from the most recent query
-        plotly_visualizations = []
-        tool_messages = state_manager.get_tool_messages()
-
-        for msg in tool_messages:
-            if msg.get("name") == "visualize_well_log":
-                content = msg.get("content", "")
-                if not content or not isinstance(content, str):
-                    continue
-
-                try:
-                    # Parse the JSON content
-                    content_json = json.loads(content)
-
-                    # Extract the visualization metadata
-                    if "plot_id" in content_json and "plot_json_path" in content_json:
-                        # Check if the file exists
-                        if not os.path.exists(content_json['plot_json_path']):
-                            continue
-
-                        with open(content_json['plot_json_path'], 'r') as f:
-                            plot_json = json.load(f)
-
-                        # Validate the JSON structure
-                        if "plot_data" not in plot_json or "plot_layout" not in plot_json:
-                            continue
-
-                        plotly_visualizations.append({
-                            "plot_id": content_json["plot_id"],
-                            "plot_data": plot_json["plot_data"],
-                            "plot_layout": plot_json["plot_layout"],
-                            "visualization_type": content_json.get("visualization_type", ""),
-                            "type": "plotly"
-                        })
-                except json.JSONDecodeError:
-                    continue
-
-        return jsonify({
-            "status": "success",
-            "plotly_visualizations": plotly_visualizations
         })
 
     # Add user message to history
     state_manager.add_message("user", query)
 
     if not state_manager.get_file_path():
-        return Response("Error: Please upload a LAS file first.", mimetype='text/plain')
+        error_event = {
+            "event": "error",
+            "data": {"message": "Please upload a LAS file first."}
+        }
+        return Response(
+            json.dumps(error_event) + "\n",
+            mimetype=EVENT_STREAM_MIMETYPE,
+            headers=EVENT_STREAM_HEADERS
+        )
 
-    # Plain text streaming implementation
-    def generate_text():
+    # Custom event stream implementation
+    def generate_json_events():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         response_text = ""
 
-        try:
-            # Stream the text response
-            async_gen = controller.handle_query_stream(query)
+        # Stream the text response
+        async_gen = controller.handle_query_stream(query)
 
-            while True:
-                try:
-                    chunk = loop.run_until_complete(async_gen.__anext__())
+        while True:
+            try:
+                chunk = loop.run_until_complete(async_gen.__anext__())
 
-                    if "chunk" in chunk:
-                        response_text += chunk["chunk"]
-                        yield chunk["chunk"]
-                    elif "status" in chunk and chunk["status"] == "complete":
-                        # Update state with debug information if available
-                        if "thinking_process" in chunk:
-                            state_manager.set_thinking_process(chunk["thinking_process"])
-                        if "token_usage" in chunk:
-                            state_manager.set_token_usage(chunk["token_usage"])
-                        if "tool_messages" in chunk:
-                            state_manager.set_tool_messages(chunk["tool_messages"])
-                        break
-                    elif "status" in chunk and chunk["status"] == "tool_messages":
-                        # Just log that we received tool messages, but don't save them yet
-                        # They will be saved when the complete status is received
-                        if "tool_messages" in chunk and chunk["tool_messages"]:
-                            print(f"Received {len(chunk['tool_messages'])} tool messages (will be saved at completion)")
-                except StopAsyncIteration:
+                if "chunk" in chunk:
+                    response_text += chunk["chunk"]
+                    # Send text chunk as a JSON event
+                    event = {
+                        "event": "text_chunk",
+                        "data": {"text": chunk["chunk"]}
+                    }
+                    yield json.dumps(event) + "\n"
+                elif "status" in chunk and chunk["status"] == "complete":
+                    # Update state with debug information if available
+                    if "thinking_process" in chunk:
+                        state_manager.set_thinking_process(chunk["thinking_process"])
+                    if "token_usage" in chunk:
+                        state_manager.set_token_usage(chunk["token_usage"])
+                    if "tool_messages" in chunk:
+                        state_manager.set_tool_messages(chunk["tool_messages"])
+
+                    # Send completion event
+                    event = {
+                        "event": "complete",
+                        "data": {
+                            "thinking_process": chunk.get("thinking_process", ""),
+                            "token_usage": chunk.get("token_usage", {}),
+                            "token_cost": chunk.get("token_cost", {}),
+                            "tool_messages": chunk.get("tool_messages", [])
+                        }
+                    }
+
+                    # Process visualizations
+                    plotly_visualizations = []
+                    for msg in state_manager.get_tool_messages():
+                        if msg.get("name") == "visualize_well_log":
+                            content = json.loads(msg["content"])
+                            path = content.get("plot_json_path")
+                            if path and os.path.exists(path):
+                                with open(path, 'r') as f:
+                                    pj = json.load(f)
+                                plotly_visualizations.append({
+                                    "plot_id": content["plot_id"],
+                                    "plot_data": pj["plot_data"],
+                                    "plot_layout": pj["plot_layout"],
+                                    "visualization_type": content.get("visualization_type", ""),
+                                    "type": "plotly"
+                                })
+
+                    # Send visualization event
+                    yield json.dumps({
+                        "event": "visualizations",
+                        "data": { "plotly_visualizations": plotly_visualizations }
+                    }) + "\n"
+
+                    yield json.dumps(event) + "\n"
                     break
+                elif "status" in chunk and chunk["status"] == "tool_messages":
+                    # Just log that we received tool messages, but don't save them yet
+                    # They will be saved when the complete status is received
+                    if "tool_messages" in chunk and chunk["tool_messages"]:
+                        event = {
+                            "event": "tool_messages",
+                            "data": {"tool_messages": chunk["tool_messages"]}
+                        }
+                        yield json.dumps(event) + "\n"
+            except StopAsyncIteration:
+                break
 
-            # Only add the message to history if we got a response
-            if response_text:
-                state_manager.add_message("assistant", response_text)
-
-        except Exception as e:
-            # Log the error
-            print(f"Error in generate_text: {str(e)}")
-            yield f"\n\nError: {str(e)}"
+        # Only add the message to history if we got a response
+        if response_text:
+            state_manager.add_message("assistant", response_text)
 
     return Response(
-        generate_text(),
-        mimetype='text/plain'
+        generate_json_events(),
+        mimetype=EVENT_STREAM_MIMETYPE,
+        headers=EVENT_STREAM_HEADERS
     )
 
 if __name__ == '__main__':
