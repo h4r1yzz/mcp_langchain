@@ -21,7 +21,7 @@ LAS_FILE_PATHS: List[str] = []
 mcp = FastMCP("LAS File Analyzer")
 
 @mcp.tool()
-def las_file_analyzer(file_path: str) -> Dict[str, Any]:
+def get_file_metadata(file_path: str) -> Dict[str, Any]:
     """
     Analyze a LAS file and return comprehensive metadata and curve data.
     
@@ -371,7 +371,7 @@ def las_file_analyzer(file_path: str) -> Dict[str, Any]:
         return {"error": f"Error analyzing LAS file: {str(e)}"}
 
 @mcp.tool()
-def visualize_well_log(
+def get_visualization(
     file_path: str,
     visualization_type: str,  # "multi_track", "crossplot", "heatmap"
     curve_names: List[str],
@@ -630,7 +630,7 @@ def visualize_well_log(
     }
 
 @mcp.tool()
-def execute_las_code(file_path: str, code: str, max_output_size: int = 10000) -> Dict[str, Any]:
+def get_ascii_data(file_path: str, code: str, max_output_size: int = 10000) -> Dict[str, Any]:
     """
     Execute Python code on a LAS file dataframe and return the results.
 
@@ -712,4 +712,4 @@ def execute_las_code(file_path: str, code: str, max_output_size: int = 10000) ->
     return result
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport='stdio')
