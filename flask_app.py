@@ -228,7 +228,7 @@ def process_query_stream():
                     # Process visualizations
                     plotly_visualizations = []
                     for msg in state_manager.get_tool_messages():
-                        if msg.get("name") == "visualize_well_log":
+                        if msg.get("name") == "get_visualization":
                             content = json.loads(msg["content"])
                             path = content.get("plot_json_path")
                             if path and os.path.exists(path):

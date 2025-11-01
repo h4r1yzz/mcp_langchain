@@ -63,8 +63,16 @@ def get_file_metadata(file_path: str) -> Dict[str, Any]:
                 "rows": len(las.data) if hasattr(las, "data") and las.data is not None else 0,
                 "columns": len(las.curves) if hasattr(las, "curves") else 0
             },
-            "curve_data": {}
+            "curve_data": {},
+            "file_type": "unknown" 
         }
+        
+        # Detect file type based on curve names
+        curve_names = [curve.mnemonic for curve in las.curves if hasattr(curve, "mnemonic")]
+        if "ZONENAME" in curve_names:
+            metadata["file_type"] = "zone_labels"
+        else:
+            metadata["file_type"] = "well_log"
         
         # # Extract version info
         # if hasattr(las, "version"):
@@ -373,7 +381,7 @@ def get_file_metadata(file_path: str) -> Dict[str, Any]:
 @mcp.tool()
 def get_visualization(
     file_path: str,
-    visualization_type: str,  # "multi_track", "crossplot", "heatmap"
+    visualization_type: str,  # "multi_track", "crossplot", "heatmap", "zones_overlay"
     curve_names: List[str],
     options: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
@@ -387,6 +395,7 @@ def get_visualization(
               - "multi_track": Track-based log plot with multiple curves.
               - "crossplot": Scatter plot comparing two curves.
               - "heatmap": Heatmap visualization of multiple curves.
+              - "zones_overlay": Multi-track visualization with zone labels overlay.
         curve_names: List of curve names to visualize.
         options: Optional dictionary of visualization options. Supported keys:
             - depth_range: [min_depth, max_depth] to limit the plot.
@@ -396,6 +405,8 @@ def get_visualization(
             - color_curve: For crossplot color coding.
             - colormap: For heatmap (default: "viridis").
             - track_widths: List of relative widths for multi_track.
+            - zone_file_path: Path to supplementary file with zone labels (for zones_overlay).
+            - depth_reference: Which depth reference to use ("MD", "TVD", or "TVDSS"). Default is "MD".
 
     Returns:
         Dictionary containing:
@@ -410,7 +421,7 @@ def get_visualization(
         options = {}
 
     # Use the existing LAS file analyzer to get metadata and curve information
-    las_data = las_file_analyzer(file_path)
+    las_data = get_file_metadata(file_path)
     if "error" in las_data:
         return {"error": las_data["error"]}
 
@@ -453,50 +464,33 @@ def get_visualization(
 
         # Plot each curve in its own track
         for i, curve in enumerate(curve_names):
-            # For multi_track, skip plotting the "DEPT" curve if it's not a column in df,
-            # because depth is used as the common y-axis.
-            if curve == "DEPT" and curve not in df.columns:
-                continue
-
-            # Curve existence was already validated above
-            curve_data = df[curve].values
-
-            depth_data = df.index.values
-
-            # Add trace for the curve
-            fig.add_trace(
-                go.Scatter(
-                    x=curve_data,
-                    y=depth_data,
-                    mode="lines",
-                    line=dict(color=colors[i], width=2),
-                    name=curve
-                ),
-                row=1, col=i+1
-            )
-            # No need for x-axis titles since we have subplot titles
-            fig.update_xaxes(showticklabels=True, row=1, col=i+1)
-
-            # Add annotation for statistics if available
-            if curve in las_data["curve_data"]:
-                stats = las_data["curve_data"][curve]
-                if stats.get("min") is not None and stats.get("max") is not None:
-                    annotation_text = f"Min: {stats['min']:.2f}<br>Max: {stats['max']:.2f}"
-                    # For the first subplot, use "x domain" (no number) per Plotly conventions
-                    if i == 0:
-                        xref_val = "x domain"
-                    else:
-                        xref_val = f"x{i+1} domain"
-                    fig.add_annotation(dict(
-                        xref=xref_val,
-                        yref="paper",
-                        x=0.5,
-                        y=0.02,
-                        text=annotation_text,
-                        showarrow=False,
-                        bgcolor="white",
-                        opacity=0.7
-                    ), row=1, col=i+1)
+            if curve in df.columns:
+                # Filter out NaN values for plotting
+                valid_mask = ~df[curve].isna()
+                plot_df = df[valid_mask]
+                
+                if len(plot_df) > 0:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=plot_df[curve],
+                            y=plot_df.index.values,  # Use the index which is now the selected depth reference
+                            mode="lines",
+                            line=dict(color=colors[i], width=2),
+                            name=curve,
+                            showlegend=False
+                        ),
+                        row=1, col=i+1
+                    )
+                    
+                    # Set appropriate x-axis range based on curve data
+                    min_val = plot_df[curve].min()
+                    max_val = plot_df[curve].max()
+                    padding = (max_val - min_val) * 0.1
+                    fig.update_xaxes(
+                        range=[min_val - padding, max_val + padding], 
+                        row=1, col=i+1,
+                        title_text=curve
+                    )
 
         # Invert y-axis (depth increasing downward)
         fig.update_yaxes(autorange="reversed")
@@ -508,6 +502,186 @@ def get_visualization(
         fig.update_layout(title=title, showlegend=False, height=400,
                           width=max(600, 150 * n_tracks),
                           margin=dict(l=0, r=40, t=50, b=40))
+
+    elif visualization_type.lower() == "zones_overlay":
+        zone_file_path = options.get("zone_file_path")
+        if not zone_file_path:
+            return {"error": "Zone file path is required for zones_overlay visualization"}
+        
+        # Get preferred depth reference system (default to MD)
+        depth_reference = options.get("depth_reference", "MD").upper()
+        
+        # Load zone data
+        zone_las = lasio.read(zone_file_path)
+        zone_df = zone_las.df().reset_index()
+        
+        # Define mappings for different depth reference systems
+        depth_mappings = {
+            "DEPTH": ["MD", "DEPT", "DEPTH", "MEASURED DEPTH", "DEPTH.M", "MD.M"],
+            "TVD": ["TVD", "TRUE VERTICAL DEPTH", "TVD.M"],
+            "TVDSS": ["TVDSS", "TVD SS", "TRUE VERTICAL DEPTH SUB SEA", "TVDSS.M", "TVDSS.METRES"]
+        }
+        
+        # Helper function to find matching column
+        def find_matching_column(dataframe, reference_type):
+            for col in dataframe.columns:
+                col_upper = col.upper().split(':')[0] 
+                for ref_name, patterns in depth_mappings.items():
+                    if any(pattern == col_upper or col_upper.startswith(pattern + ".") for pattern in patterns):
+                        if ref_name == reference_type:
+                            return col, ref_name
+            return None, None
+        
+        # Find primary depth column with preferred reference
+        primary_depth_col, found_ref = find_matching_column(df, depth_reference)
+
+        # If not found, try any depth column
+        if not primary_depth_col:
+            for ref_name in depth_mappings:
+                primary_depth_col, found_ref = find_matching_column(df, ref_name)
+                if primary_depth_col:
+                    depth_reference = found_ref
+                    break
+
+        # Fallback to index or first column if still not found
+        if not primary_depth_col:
+            if df.index.name:
+                primary_depth_col = df.index.name
+                df.reset_index(inplace=True)
+            else:
+                primary_depth_col = df.columns[0]
+
+        # Important: If primary_depth_col exists but isn't the index, reset the index to use it properly
+        if primary_depth_col in df.columns:
+            # Store the original index name if needed later
+            original_index_name = df.index.name
+            # Reset index to use the selected depth column
+            df = df.reset_index().set_index(primary_depth_col)
+            # Keep a copy of the depth column for plotting
+            df[primary_depth_col] = df.index.values
+
+        # Find zone depth column with matching reference
+        zone_depth_col, _ = find_matching_column(zone_df, depth_reference)
+        
+        # If not found, try any depth column in zone data
+        if not zone_depth_col:
+            for ref_name in depth_mappings:
+                zone_depth_col, _ = find_matching_column(zone_df, ref_name)
+                if zone_depth_col:
+                    break
+        
+        # Check for zone name column
+        zone_name_col = next((col for col in zone_df.columns if col.upper() in ["ZONENAME", "ZONE"]), None)
+        
+        if not zone_depth_col or not zone_name_col:
+            return {"error": f"Zone file must contain depth and zone name columns. Using depth reference: {depth_reference}"}
+        
+        # Create multi-track visualization with zones
+        n_tracks = len(curve_names)
+        colors = options.get("colors", [f"rgba({i*40 % 255}, {i*70 % 255}, {i*90 % 255}, 1)" for i in range(n_tracks)])
+        
+        # Create subplots
+        fig = make_subplots(rows=1, cols=n_tracks, shared_yaxes=True,
+                            horizontal_spacing=0.02,
+                            subplot_titles=[f"{curve} ({available_curves[curve].get('unit', '')})" for curve in curve_names])
+        
+        # Plot each curve in its own track
+        for i, curve in enumerate(curve_names):
+            if curve in df.columns:
+                # Filter out NaN values for plotting
+                valid_mask = ~df[curve].isna()
+                plot_df = df[valid_mask]
+                
+                if len(plot_df) > 0:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=plot_df[curve],
+                            y=plot_df[primary_depth_col],
+                            mode="lines",
+                            line=dict(color=colors[i], width=2),
+                            name=curve,
+                            showlegend=False
+                        ),
+                        row=1, col=i+1
+                    )
+                    
+                    # Set appropriate x-axis range based on curve data
+                    min_val = plot_df[curve].min()
+                    max_val = plot_df[curve].max()
+                    padding = (max_val - min_val) * 0.1
+                    fig.update_xaxes(
+                        range=[min_val - padding, max_val + padding], 
+                        row=1, col=i+1,
+                        title_text=curve
+                    )
+        
+        # Get depth range from primary data for consistent y-axis
+        min_depth = df[primary_depth_col].min()
+        max_depth = df[primary_depth_col].max()
+        
+        # Add zone labels and lines
+        unique_zones = []
+        for i, row in zone_df.iterrows():
+            top = row[zone_depth_col]
+            if pd.notna(top) and min_depth <= top <= max_depth:
+                label = str(row[zone_name_col]).strip('"')
+                
+                # Only add unique zones to avoid duplicates
+                if label not in unique_zones:
+                    unique_zones.append(label)
+                
+                # Add horizontal line at zone top across all tracks
+                fig.add_shape(
+                    type='line',
+                    xref='paper', x0=0, x1=1,
+                    yref='y', y0=top, y1=top,
+                    line=dict(color='rgba(0, 0, 255, 0.7)', width=1.5, dash='dash'),
+                    layer='above'
+                )
+                
+                # Add zone label annotation
+                fig.add_annotation(
+                    x=1.02, y=top,
+                    xref='paper', yref='y',
+                    text=label,
+                    showarrow=False,
+                    font=dict(color='blue', size=10),
+                    xanchor='left', align='left'
+                )
+        
+        # Invert y-axis (depth increasing downward)
+        fig.update_yaxes(autorange="reversed")
+
+        # Get the unit for the selected depth reference
+        normalized_col = primary_depth_col.strip().upper()
+        depth_unit = ""
+
+        unit_candidates = ["M", "FT", "METERS", "METRES", "FEET"]
+        if "." in normalized_col:
+            parts = normalized_col.split(".")
+            if len(parts) > 1:
+                candidate_unit = parts[1].strip().upper()
+                if candidate_unit in unit_candidates:
+                    depth_unit = candidate_unit.lower() 
+
+        # If no unit found, fall back to default for each reference type
+        if not depth_unit:
+            default_units = {"MD": "m", "TVD": "m", "TVDSS": "m"}
+            depth_unit = default_units.get(depth_reference.upper(), "")
+
+        display_reference = "MD" if depth_reference == "TVD" else depth_reference
+
+        # Use the modified reference for the y-axis label
+        fig.update_yaxes(title_text=f"{display_reference} ({depth_unit})", row=1, col=1)
+        
+        # Set overall title and layout
+        fig.update_layout(
+            title=title, 
+            showlegend=False, 
+            height=800,  # Taller to accommodate zones
+            width=max(600, 150 * n_tracks),
+            margin=dict(l=0, r=120, t=50, b=40),  # Wider right margin for zone labels
+        )
 
     elif visualization_type.lower() == "crossplot":
         if len(curve_names) < 2:

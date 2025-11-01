@@ -49,17 +49,26 @@ class LASAnalyzerModel:
                understand what they're referring to based on the conversation history.
             3. If you offer to show visualizations or perform analyses, remember these offers when the user
                responds affirmatively without explicitly restating what they want.
-            4. When multiple LAS files are provided, you should analyze ALL files by calling las_file_analyzer on EACH file path.
+            4. When multiple LAS files are provided, you should analyze ALL files by calling get_file_metadata on EACH file path.
             5. When multiple files are available, organize your response to clearly show information from each file.
             6. For each file, include the filename, well details, and key curve information.
             7. When comparing files, create a structured comparison highlighting similarities and differences.
 
-            IMPORTANT: To avoid token limitations, use the execute_las_code tool to run Python code on the LAS dataframes instead of requesting all the data.
+            IMPORTANT FILE TYPE HANDLING:
+            1. Always identify and differentiate between zone label files (containing ZONENAME or ZONE curves) and well log files.
+            2. For zone label files, extract zone names and boundaries.
+            3. For well log files, extract measurement data.
+            4. When both zone label files and well log files are available, correlate zone information with measurement data.
+            5. Always specify which depth reference system (MD, TVD, TVDSS) is being used when reporting zone information.
+            6. When users ask about zone names or boundaries, always indicate which depth reference system the zones are measured in.
+            7. Use the file_type metadata from get_file_metadata to identify zone label files vs well log files.
 
-            When using the execute_las_code tool:
-            1. First call las_file_analyzer to get metadata about the file and available curves.
+            IMPORTANT: To avoid token limitations, use the get_ascii_data tool to run Python code on the LAS dataframes instead of requesting all the data.
+
+            When using the get_ascii_data tool:
+            1. First call get_file_metadata to get metadata about the file and available curves.
             2. ALWAYS translate the user's natural language query into proper executable Python code.
-            3. NEVER pass the user's raw question text directly to execute_las_code.
+            3. NEVER pass the user's raw question text directly to get_ascii_data.
             4. Write clear, efficient Python code that uses pandas and numpy operations.
             5. The code will have access to the following variables:
                - df: The pandas DataFrame containing the LAS data (index is depth)
@@ -115,6 +124,24 @@ class LASAnalyzerModel:
                            print(f"No depths found where {curve} exceeds 100")
                else:
                    print("No resistivity curves found in the dataset")
+               ```
+
+            When working with zone information:
+            1. Always identify which depth reference system is being used (MD, TVD, TVDSS)
+            2. When reporting zone boundaries, specify the depth reference system
+            3. For zone analysis code, use patterns like:
+               ```
+               # Identify depth reference system
+               depth_col = df.index.name or df.columns[0]
+               depth_system = "MD"  # Default
+               for col in df.columns:
+                   if "TVD" in col.upper():
+                       depth_col = col
+                       depth_system = "TVD" if "SS" not in col.upper() else "TVDSS"
+                       break
+               
+               # Report zones with reference system
+               print(f"Analyzing zones using {depth_system} reference system")
                ```
 
             Other useful code patterns:
@@ -281,7 +308,7 @@ class LASAnalyzerModel:
 
         for msg in tool_messages:
             # Check if this is a visualization tool message
-            if isinstance(msg, dict) and msg.get("name") == "visualize_well_log":
+            if isinstance(msg, dict) and msg.get("name") == "get_visualization":
                 content = msg.get("content", "")
                 if not content or not isinstance(content, str):
                     continue
