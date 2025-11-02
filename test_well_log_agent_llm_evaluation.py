@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, NamedTuple
 
 from controllers import LASChatController
-from models import LASAnalyzerModel
+from client import LASAnalyzerModel
 from state import StateManager
 from langchain_anthropic import ChatAnthropic
 

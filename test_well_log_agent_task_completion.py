@@ -11,7 +11,7 @@ from deepeval.test_case import LLMTestCase, ToolCall
 from deepeval.models.base_model import DeepEvalBaseLLM
 from langchain_anthropic import ChatAnthropic
 from controllers import LASChatController
-from models import LASAnalyzerModel
+from client import LASAnalyzerModel
 from state import StateManager
 class AnthropicModel(DeepEvalBaseLLM):
     def __init__(self, api_key=None, model_name="claude-3-5-haiku-20241022"):

@@ -170,7 +170,7 @@ class LASAnalyzerModel:
             await client.connect_to_server(
                 "LAS File Analyzer",
                 command=self.python_path,
-                args=["file.py"],
+                args=["server.py"],
                 encoding_error_handler="ignore",
             )
 
@@ -383,7 +383,7 @@ class LASAnalyzerModel:
             await client.connect_to_server(
                 "LAS File Analyzer",
                 command=self.python_path,
-                args=["file.py"],
+                args=["server.py"],
                 encoding_error_handler="ignore",
             )
 
