@@ -2,6 +2,8 @@
 
 This repo is for experimenting with creating tools for AI agents to run using Anthropic's Model Context Protocol. It provides a Flask-based application for analyzing LAS (Log ASCII Standard) well log files using Claude AI.
 
+![Well log analysis demo](welllog.gif)
+
 ## Setup and Running
 
 ### API Key Configuration
